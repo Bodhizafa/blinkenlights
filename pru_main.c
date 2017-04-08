@@ -90,6 +90,14 @@ void main(void)
 					uint16_t nregs = ((uint16_t*)(payload+1))[0];
 					display_2812B((uint16_t*)resourceTable.fb.pa, nregs);
 					pru_rpmsg_send(&transport, dst, src, &nregs, sizeof(nregs));
+				} else if (payload[0] == 'p') { // ping
+					pru_rpmsg_send(&transport, dst, src, "p", 1);
+				} else if (payload[0] == 'P') {
+					while(1) {
+						uint32_t i;
+						for (i = 0; i < 100000; i++);
+						pru_rpmsg_send(&transport, dst, src, "p", 1);
+					}
 				}
 			}
 		}

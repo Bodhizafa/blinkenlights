@@ -10,7 +10,7 @@ CLPRU_LIBS=-i/usr/share/ti/cgt-pru/lib -i/usr/share/ti/cgt-pru/include
 
 firmware: build/am335x-pru0-fw build/am335x-pru1-fw
 
-install: build/am335x-pru0-fw build/am335x-pru0-fw
+install: build/am335x-pru0-fw build/am335x-pru1-fw
 	cp build/am335x-pru0-fw /lib/firmware/am335x-pru0-fw
 	cp build/am335x-pru1-fw /lib/firmware/am335x-pru1-fw
 	$(MAKE) restartpru
@@ -18,7 +18,7 @@ install: build/am335x-pru0-fw build/am335x-pru0-fw
 build:
 	mkdir build
 clean:
-	rm -r build
+	rm -r build || true
 
 # -z changes the compiler into the linker. ~~MAGIC~~
 build/am335x-pru0-fw: build/am335x-pru0-fw.obj  
@@ -33,7 +33,7 @@ build/am335x-pru1-fw.obj: pru_main.c resource_table.h build
 	$(CLPRU) -DPRU_NO=1 $(CLPRU_INCLUDES) $(CLPRU_CFLAGS) -febuild/am335x-pru1-fw.obj ./pru_main.c 
 
 restartpru:  # If it's not already started, the write to unbind will fail
-	echo "4a334000.pru0" > /sys/bus/platform/drivers/pru-rproc/unbind || true
 	echo "4a338000.pru1" > /sys/bus/platform/drivers/pru-rproc/unbind || true
-	echo "4a334000.pru0" > /sys/bus/platform/drivers/pru-rproc/bind
+	echo "4a334000.pru0" > /sys/bus/platform/drivers/pru-rproc/unbind || true
 	echo "4a338000.pru1" > /sys/bus/platform/drivers/pru-rproc/bind
+	echo "4a334000.pru0" > /sys/bus/platform/drivers/pru-rproc/bind

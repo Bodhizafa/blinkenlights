@@ -56,13 +56,11 @@ struct my_resource_table {
 	struct resource_table base;
 
 	// 1st thing - Increment number of entries here
-	uint32_t offset[4];  
+	uint32_t offset[3];  
 	// 2nd thing: Add a struct here. Offsets, so some thing take more than one struct.
 
-	// First offset  - framebuffer 0
-	struct fw_rsc_carveout fb0;
-	// Second offset - framebuffer 1
-	struct fw_rsc_carveout fb1;
+	// First offset  - framebuffer
+	struct fw_rsc_carveout fb;
 	// Third offset  - rpmsg thing (and its two vrings. 
 	struct fw_rsc_vdev rpmsg_vdev;
 	// This is why offsets are used, cause some entries are wide)
@@ -81,12 +79,11 @@ struct my_resource_table {
 
 struct my_resource_table resourceTable = {
 	1,	// Version, must be 1
-	4,	// 3rd thing, the number of offsets _here_ too.
+	3,	// 3rd thing, the number of offsets _here_ too.
 	0, 0,	// reserved, be 0
 	// 4th thing:  into the struct
 	{
-		offsetof(struct my_resource_table, fb0),
-		offsetof(struct my_resource_table, fb1),
+		offsetof(struct my_resource_table, fb),
 		offsetof(struct my_resource_table, rpmsg_vdev),
 		offsetof(struct my_resource_table, pru_ints),
 	},
@@ -98,16 +95,7 @@ struct my_resource_table resourceTable = {
 		(uint32_t)FRAMEBUFFER_SIZE,
 		(uint32_t)0,
 		(uint32_t)0,
-		"Framebuffer 0"
-	},
-	{
-		(uint32_t)TYPE_CARVEOUT,
-		(uint32_t)(0xFFFFFFFFFFFFFFFF),
-		(uint32_t)(0xFFFFFFFFFFFFFFFF),
-		(uint32_t)FRAMEBUFFER_SIZE,
-		(uint32_t)0,
-		(uint32_t)0,
-		"Framebuffer 1"
+		"Framebuffer"
 	},
 	{
 		(uint32_t)TYPE_VDEV,

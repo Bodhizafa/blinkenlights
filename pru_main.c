@@ -51,10 +51,8 @@ See also: https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-onc
 }
 
 struct memmsg {
-	uint32_t pa0;
-	uint32_t len0;
-	uint32_t pa1;
-	uint32_t len1;
+	uint32_t pa;
+	uint32_t len;
 };
 void main(void)
 {
@@ -83,16 +81,14 @@ void main(void)
 			CT_INTC.SICR_bit.STS_CLR_IDX = FROM_ARM_HOST;
 			// this is like recv() but fancier.
 			while (pru_rpmsg_receive(&transport, &src, &dst, payload, &len) == PRU_RPMSG_SUCCESS) {
-				if (payload[0] == 'a') { // address of fbs
+				if (payload[0] == 'a') { // address of carveout
 					struct memmsg msg;
-					msg.pa0 = resourceTable.fb0.pa;
-					msg.len0 = resourceTable.fb0.len;
-					msg.pa1 = resourceTable.fb1.pa;
-					msg.len1 = resourceTable.fb1.len;
+					msg.pa = resourceTable.fb.pa;
+					msg.len = resourceTable.fb.len;
 					pru_rpmsg_send(&transport, dst, src, &msg, sizeof(msg));
 				} else if (payload[0] == 'd') { // display
 					uint16_t nregs = ((uint16_t*)(payload+1))[0];
-					display_2812B((uint16_t*)resourceTable.fb0.pa, nregs);
+					display_2812B((uint16_t*)resourceTable.fb.pa, nregs);
 					pru_rpmsg_send(&transport, dst, src, &nregs, sizeof(nregs));
 				}
 			}

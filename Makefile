@@ -6,7 +6,7 @@ CLPRU_LFLAGS=--reread_libs --warn_sections --stack_size=0x100 --heap_size=0x100
 CLPRU_INCLUDES=--include_path=/usr/lib/ti/pru-software-support-package/include --include_path=/usr/lib/ti/pru-software-support-package/include/am335x --include_path=/usr/share/ti/cgt-pru/include
 CLPRU_LIBS=-i/usr/share/ti/cgt-pru/lib -i/usr/share/ti/cgt-pru/include 
 
-.PHONY: clean loadfw install startpru restartpru
+.PHONY: clean loadfw install startpru restartpru magic
 
 firmware: build/am335x-pru0-fw build/am335x-pru1-fw
 
@@ -14,6 +14,9 @@ install: build/am335x-pru0-fw build/am335x-pru1-fw
 	cp build/am335x-pru0-fw /lib/firmware/am335x-pru0-fw
 	cp build/am335x-pru1-fw /lib/firmware/am335x-pru1-fw
 	$(MAKE) restartpru
+
+magic: install
+	./fuck.py 0 --len 300
 
 build:
 	mkdir build

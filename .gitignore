@@ -2,3 +2,4 @@
 *.swo
 .fuck_history
 build/*
+__pycache__

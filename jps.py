@@ -4,6 +4,8 @@ import math
 import itertools
 from collections import namedtuple
 from pprint import pprint
+from astpp import dump as astdump
+
 TAU = math.pi * 2
 period = 10
 strand_len = 10
@@ -48,22 +50,12 @@ ops = [
                                                                    min(rgbl[1] + rgbr[1], 1),
                                                                    min(rgbl[2] + rgbr[2], 1))),
     sig(ast.Add, NUMBER, (NUMBER, NUMBER),     lambda vl, vr: vl + vr),
-    sig(ast.Add, COLOR, (NUMBER, COLOR),       lambda vl, rgbr: (min(vl + rgbr[0], 1),
-                                                                 min(vl + rgbr[1], 1),
-                                                                 min(vl + rgbr[2], 1))),
-    sig(ast.Add, COLOR, (COLOR, NUMBER),       lambda rgbl, vr: (min(rgbl[0] + vr, 1),
-                                                                 min(rgbl[1] + vr, 1),
-                                                                 min(rgbl[2] + vr, 1))),
 
     # Binary - subtractive blending
     sig(ast.Sub, NUMBER, (NUMBER, NUMBER),     lambda vl, vr: max(vl - vr, 0)),
     sig(ast.Sub, COLOR, (COLOR, COLOR),        lambda rgbl, rgbr: (max(rgbl[0] - rgbr[0], 0),
                                                                    max(rgbl[1] - rgbr[1], 0),
                                                                    max(rgbl[2] - rgbr[2], 0))),
-    # you can't subtract a color from a number
-    sig(ast.Sub, COLOR, (COLOR, NUMBER),       lambda rgbl, vr: (max(rgbl[0] - vr, 0),
-                                                                 max(rgbl[1] - vr, 0),
-                                                                 max(rgbl[2] - vr, 0))),
 
     # Binary * multiply blending
     sig(ast.Mult, NUMBER, (NUMBER, NUMBER),    lambda vl, vr: vl * vr),
@@ -192,7 +184,7 @@ class JPSVM(object):
         print("mogrifying %s", node)
         if type(node) is ast.BinOp:
             l = self._mogrify_ast_r(node.left, types_by_node)
-            r = self._mogrify_ast_r(node.left, types_by_node)
+            r = self._mogrify_ast_r(node.right, types_by_node)
             op_types_in = (type(node.op), (types_by_node[l], types_by_node[r]))
             if op_types_in not in self.op_types_by_op_types_in:
                 raise TrippingBallsError("Don't know how to do this", node)
@@ -205,7 +197,7 @@ class JPSVM(object):
             o = self._mogrify_ast_r(node.operand, types_by_node)
             op_types_in = (type(node.op), (types_by_node[o]))
             if op_types_in not in self.op_types_by_op_types_in:
-                raise TrippingBallsError("Don't know how to do this", node)
+                raise TrippingBallsError("Don't know how to do this " + str(op_types_in), astdump(node))
             typ = self.op_types_by_op_types_in[op_types_in]
             name = self._mangle(*op_types_in)
             new_node = ast.Call(func=ast.Name(id=name, ctx=ast.Load()), args=[o], keywords=[])
@@ -214,10 +206,10 @@ class JPSVM(object):
         elif type(node) is ast.Call:
             args = [self._mogrify_ast_r(arg, types_by_node) for arg in node.args]
             if type(node.func) is not ast.Name:
-                raise TrippingBallsError("Name isn't normal", node)
+                raise TrippingBallsError("Name isn't normal", astdump(node))
             name_types_in = (node.func.id, tuple([types_by_node[arg] for arg in args]))
             if name_types_in not in self.func_types_by_name_types_in:
-                raise TrippingBallsError("Can't do that to those", node)
+                raise TrippingBallsError("Don't know how to %s(%r) " % name_types_in)
             typ = self.func_types_by_name_types_in[name_types_in]
             name = self._mangle(*name_types_in)
             new_node = ast.Call(func=ast.Name(id=name, ctx=ast.Load()), args=args, keywords=[])
@@ -247,6 +239,7 @@ class JPSVM(object):
     def parse_str(self, arg_str):
         types_by_node = {}
         a = self._mogrify_ast_r(ast.parse(arg_str, mode="eval").body, types_by_node) # strip off the outer Expression() node
+        print(astdump(a))
         if types_by_node[a] is not COLOR:
             raise TrippingBallsError("That's not a color...", a)
         lamb = ast.Lambda(args=ast.arguments(args=[ast.arg(arg=arg, annotation=None) for arg in self.args],

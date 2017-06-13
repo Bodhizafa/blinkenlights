@@ -251,31 +251,44 @@ def cmd_reset(pru, j, color_str=None):
 def cmd_pulse(pru, j):
 	stime = time.time()
 	n = 0
-	for i in itertools.chain(range(255), range(255,0, -1)):
+	for i in itertools.chain(range(255), range(255,0,-1)):
 		pru.clear((i,i,i))
 		pru.wait_frame()
 		n += 1
 	etime = time.time()
 	print("%s frames in %s seconds -- %s fps" % (n, etime - stime, float(n) / (etime - stime)))
 
-
+def parse_strands(string):
+	try:
+		strands = [int(string)]
+	except ValueError:
+		try:
+			start, end = map(int, string.split(":", maxsplit=1))
+			strands = range(start, end)
+		except ValueError:
+			strands = map(int, string.split(','))
+	return set(strands)
+		
 def cmd_pattern(pru, j, arg_str):
-	strand, period, arg_str = arg_str.split(maxsplit=2)
-	strand = int(strand)
+	strands, period, arg_str = arg_str.split(maxsplit=2)
+	strands = parse_strands(strands)
 	period = int(period)
 	fn = j.parse_str(arg_str)
-	if strand in animations_by_strand:
-		del animations_by_strand[strand]
-	pru.pattern(strand, period, fn, 0)
+	for strand in strands:
+		if strand in animations_by_strand:
+			del animations_by_strand[strand]
+		pru.pattern(strand, period, fn, 0)
 
 
 def cmd_roll(pru, j, arg_str):
-	strand, period, rpm, arg_str = arg_str.split(maxsplit=3)
-	strand = int(strand)
+	strands, period, rpm, arg_str = arg_str.split(maxsplit=3)
+	strands = parse_strands(strands)
 	period = int(period)
 	rpm = int(rpm)
-	fn = fuckparse(arg_str)
-	animations_by_strand[strand] = (fn, period, rpm)
+	fn = j.parse_str(arg_str)
+	with animations_lock:
+		for strand in strands:
+			animations_by_strand[strand] = (fn, period, rpm)
 
 def cmd_set(pru, j, arg_str=None):
 	strand, arg_str = arg_str.split(maxsplit=1)
@@ -305,12 +318,14 @@ funcs_by_cmd = {
 }
 
 animations_by_strand = {} # strand no => (fn, period, rpm)
+animations_lock = threading.Lock()
 def display_thread_main(pru): # Ghetto ass shit because I can't figure out why the fucking thing keeps hanging
 	start = time.time()
 	while True:
-		elapsed_min = (time.time() - start) / 60.
-		for strand, (fn, period, rpm) in animations_by_strand.items():
-			pru.pattern(strand, period, fn, elapsed_min * rpm)
+		with animations_lock:
+			elapsed_min = (time.time() - start) / 60.
+			for strand, (fn, period, rpm) in animations_by_strand.items():
+				pru.pattern(strand, period, fn, elapsed_min * rpm)
 		pru.display()
 
 if __name__ == "__main__":

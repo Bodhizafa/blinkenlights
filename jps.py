@@ -19,7 +19,7 @@ class NUMBER(object):
 # Type system symbol signature
 # type_out is the type produced by the thing, types_in is a list of argument types
 # Funcs with no args have types_in=(), non-function symbols have types_in=None
-# impl is either a value (for a constant), None (for a pattern arg), or a function(for a function)
+# impl is either a value (for a constant), None (for a pattern arg, i.e. T), or a function(for a function)
 sig = namedtuple("signature", ['name', 'type_out', 'types_in', 'impl'])
 # All color are clamped between 0 and 1. HDR is for hippies.
 # numbers cannot be negitive (there's no USub, and Sub clamps at 0, so making one should be impossible)

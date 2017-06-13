@@ -13,11 +13,13 @@ import traceback
 import math
 import threading
 from pprint import pprint
+
 parser = argparse.ArgumentParser()
 parser.add_argument("pru", type=int, choices=[0,1], help="Which PRU?")
 parser.add_argument("--len", type=int, default=16, help="Length of the longest strand")
 parser.add_argument("--histfile", type=str, default=".fuck_history", help="History file")
 TAU = math.pi * 2
+
 def translate_colors(colors_by_strand):
 	regs = [] # becomes an array of 16 bit register values that the PRU can march R30 through
 	#translates R,G,B into GRB bits at a time
@@ -150,21 +152,37 @@ def cmd_pulse(pru):
 	etime = time.time()
 	print("%s frames in %s seconds -- %s fps" % (n, etime - stime, float(n) / (etime - stime)))
 
+pattern_funcs_by_name = { # range from 0 to 1
+	"sin": lambda t: (sin(t)/ 2) + 0.5, 
+	"square": lambda t: (1 if t < TAU / 2 else 0),
+	"R": lambda v: (v, 0, 0),
+	"G": lambda v: (0, v, 0),
+	"B": lambda v: (0, 0, v),
+}
 def cmd_pattern(pru, arg_str):
-	pats_by_name = { # range from 0 to 255
-		"sin": lambda period: lambda x: (sin(x / TAU)/ 2) + 0.5, 
-		"square": lambda period: lambda x: (1 if x < period / 2 else 0)
-	}
-	strand, pattern, period, arg_str = map(int, arg_str.split(maxsplit=3))
-	rgb_by_led = list(map(pats_by_name[pattern], range(pru.strand_len)))
-	pru.set_strand(strand, val)
+	strand, period, arg_str = arg_str.split(maxsplit=2)
+	strand = int(strand)
+	period = int(period)
+	tree = ast.parse(arg_str, mode="eval")
+	pattern_args = ["th"]
+	for node in ast.walk(tree):
+		if isinstance(node, ast.Name):
+			if not node.id in pattern_funcs_by_name.keys() and node.id not in pattern_args:
+				raise ValueError("Unknown function or variable?" + node.id)
+	tree_wrapped = ast.Expression(ast.Lambda(ast.arguments([ast.arg(v, '') for v in pattern_args], ast.arg(), [], ast.arg(), [], []), tree))
+	tree_wrapped.lineno = 0
+	tree_wrapped.col_offset = 0
+	ast.fix_missing_locations(tree_wrapped)
+	co = compile(tree_wrapped, filename="<fuck>", mode="eval")
+	func = eval(co, pattern_funcs_by_name)
+	rgb_by_led = map(func, map(lambda pos: float(pos) / period * TAU, range(pru.strand_len)))
+	pru.set_strand(strand, rgb_by_led)
 
 def cmd_set(pru, arg_str=None):
 	strand, arg_str = arg_str.split(maxsplit=1)
 	strand = int(strand)
 	value = ast.literal_eval(arg_str)
 	pru.set_strand(strand, value)
-	
 
 def cmd_print(pru):
 	pprint(pru._colors_by_strand)
@@ -174,8 +192,6 @@ def cmd_print(pru):
 		if not n % 8:
 			print("LED %d %s" % (n / 24, next(colors)))
 		print(bin(r))
-
-	
 
 funcs_by_cmd = {
 	"clear": cmd_clear,
@@ -188,17 +204,17 @@ funcs_by_cmd = {
 	"set": cmd_set,
 }
 
-def ping_thread_main(pru): # Ghetto ass shit because I can't figure out why the fucking thing keeps hanging
+def display_thread_main(pru): # Ghetto ass shit because I can't figure out why the fucking thing keeps hanging
 	while True:
 		pru.display()
 
 if __name__ == "__main__":
 	gargs = parser.parse_args()
 	pru = PRU(gargs.pru, gargs.len)
-	ping_thread = threading.Thread(target=ping_thread_main, name="ping_thread", args=(pru,))
-	ping_thread.daemon = True
-	ping_thread.start()
-	readline.parse_and_bind("set editing-mode vi") # Deal with iti 🕶
+	display_thread = threading.Thread(target=display_thread_main, name="display_thread", args=(pru,))
+	display_thread.daemon = True
+	display_thread.start()
+	readline.parse_and_bind("set editing-mode vi") # Deal with it 🕶
 	try:
 		readline.read_history_file(gargs.histfile)
 	except FileNotFoundError:

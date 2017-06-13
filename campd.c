@@ -49,7 +49,7 @@ bool init() {
 		perror("Opening unbind");
 		return false;
 	}
-	int bind_fd = open("/sys/bus/platform/drivers/pru-rproc/unbind", O_WRONLY);
+	int bind_fd = open("/sys/bus/platform/drivers/pru-rproc/bind", O_WRONLY);
 	if (bind_fd <= 0) {
 		perror("Opening bind");
 		return false;

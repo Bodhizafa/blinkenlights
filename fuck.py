@@ -12,6 +12,7 @@ import itertools
 import traceback
 import math
 import threading
+import jps
 from pprint import pprint
 
 parser = argparse.ArgumentParser()
@@ -98,6 +99,7 @@ class PRU(object):
 				raise ValueError("value too long")
 			val.extend([(0,0,0)] * (self.strand_len - len(val)))
 			self._colors_by_strand[strand] = val
+
 	def wait_frame(self):
 		self.frame.wait()
 		self.frame.clear()
@@ -227,7 +229,7 @@ def clamp_and_rerange(R, G, B):
 		max(0, min(int(G * 255), 255)),
 		max(0, min(int(B * 255), 255)))
 
-def cmd_clear(pru, color_str=None):
+def cmd_clear(pru, j, color_str=None):
 	if color_str is not None:
 		color = ast.literal_eval(color_str)
 	else:
@@ -235,7 +237,7 @@ def cmd_clear(pru, color_str=None):
 	pru.clear(color)
 	print("Cleared to %s" % repr(color))
 
-def cmd_reset(pru, color_str=None):
+def cmd_reset(pru, j, color_str=None):
 	if color_str is not None:
 		try:
 			color = ast.literal_eval(color_str)
@@ -246,7 +248,7 @@ def cmd_reset(pru, color_str=None):
 	pru.reset()
 	pru.clear(color)
 
-def cmd_pulse(pru):
+def cmd_pulse(pru, j):
 	stime = time.time()
 	n = 0
 	for i in itertools.chain(range(255), range(255,0, -1)):
@@ -257,17 +259,17 @@ def cmd_pulse(pru):
 	print("%s frames in %s seconds -- %s fps" % (n, etime - stime, float(n) / (etime - stime)))
 
 
-def cmd_pattern(pru, arg_str):
+def cmd_pattern(pru, j, arg_str):
 	strand, period, arg_str = arg_str.split(maxsplit=2)
 	strand = int(strand)
 	period = int(period)
-	fn = fuckparse(arg_str)
+	fn = j.parse_str(arg_str)
 	if strand in animations_by_strand:
 		del animations_by_strand[strand]
 	pru.pattern(strand, period, fn, 0)
 
 
-def cmd_roll(pru, arg_str):
+def cmd_roll(pru, j, arg_str):
 	strand, period, rpm, arg_str = arg_str.split(maxsplit=3)
 	strand = int(strand)
 	period = int(period)
@@ -275,13 +277,13 @@ def cmd_roll(pru, arg_str):
 	fn = fuckparse(arg_str)
 	animations_by_strand[strand] = (fn, period, rpm)
 
-def cmd_set(pru, arg_str=None):
+def cmd_set(pru, j, arg_str=None):
 	strand, arg_str = arg_str.split(maxsplit=1)
 	strand = int(strand)
 	value = ast.literal_eval(arg_str)
 	pru.set_strand(strand, value)
 
-def cmd_print(pru):
+def cmd_print(pru, j):
 	pprint(pru._colors_by_strand)
 	regs = translate_colors(pru._colors_by_strand)
 	colors = itertools.cycle(["G", "R", "B"])
@@ -317,6 +319,7 @@ if __name__ == "__main__":
 	display_thread = threading.Thread(target=display_thread_main, name="display_thread", args=(pru,))
 	display_thread.daemon = True
 	display_thread.start()
+	j = jps.JPSVM(jps.funcs, jps.ops, jps.args, jps.consts)
 	readline.parse_and_bind("set editing-mode vi") # Deal with it 🕶
 	try:
 		readline.read_history_file(gargs.histfile)
@@ -340,7 +343,7 @@ if __name__ == "__main__":
 			n = len(possibilities)
 			if n == 1:
 				try:
-					funcs_by_cmd[possibilities[0]](pru, *args)
+					funcs_by_cmd[possibilities[0]](pru, j, *args)
 					print("Ok.")
 				except:
 					traceback.print_exc()

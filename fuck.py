@@ -16,7 +16,7 @@ from pprint import pprint
 
 parser = argparse.ArgumentParser()
 parser.add_argument("pru", type=int, choices=[0,1], help="Which PRU?")
-parser.add_argument("--len", type=int, default=16, help="Length of the longest strand")
+parser.add_argument("--len", type=int, default=25, help="Length of the longest strand")
 parser.add_argument("--histfile", type=str, default=".fuck_history", help="History file")
 TAU = math.pi * 2
 
@@ -42,7 +42,7 @@ class PRU(object):
 		memfd = os.open("/dev/mem", os.O_RDWR)
 		addr, size = self.recv('II')
 		print("Initialized PRU %d, FD %d\n" % (no, self.msgfd) + 
-		      "Framebuffer at %08x %08d\n" % (addr, size))
+	   	      "Framebuffer at %08x %08d\n" % (addr, size))
 		self.fb = mmap.mmap(memfd, length=size, offset=addr)
 		self.fb.write(b'\x00' * size)
 		self.fb.seek(0, os.SEEK_SET)
@@ -92,7 +92,7 @@ class PRU(object):
 	def set_strand(self, strand, strand_val):
 		with self.lock:
 			if strand > 15:
-				raise ValueError("strand too large: " + str(strand))
+				raise ValueError("strand doesn't exist: " + str(strand))
 			val = strand_val
 			if len(val) > self.strand_len:
 				raise ValueError("value too long")
@@ -123,6 +123,110 @@ class PRU(object):
 			self.send("c", "p".encode('ascii'))
 			print(self.recv("c"))
 
+	# Sets a strand to a pattern, given by a function from 0-TAU => (0-1, 0-1, 0-1) (i.e. one made by fuckparse)
+	def pattern(self, strand, period, fn, t):
+		leds = map(lambda th: clamp_and_rerange(*fn(th + t)), map(lambda ledno: float(ledno) / float(period) * TAU, range(self.strand_len)))
+		self.set_strand(strand, list(leds))
+
+# color-friendly operators. Should all take either an RGB tuple or a value and return the same.
+# All tuple members and values should come in between 0 and 1 and be returned the same
+def unary_sub(v):
+	try:
+		return 1 - v
+	except TypeError:
+		R, G, B = v
+		return (1-R, 1-G, 1-B)
+
+def binary_add(l, r):
+	try:
+		return (max(l[0] + r[0], 1),
+			max(l[1] + r[1], 1),
+			max(l[2] + r[2], 1))
+	except TypeError:
+		return max(l + r, 1)
+
+def binary_sub(l, r):
+	try:
+		return (min(l[0] - r[0], 0),
+			min(l[1] - r[1], 0),
+			min(l[2] - r[2], 0))
+	except TypeError:
+		return min(l - r, 0)
+
+def binary_mult(l, r):
+	try:
+		return (l[0] * r[0],
+			l[1] * r[1],
+			l[2] * r[2])
+	except TypeError:
+		return l * r
+
+def binary_div(l, r):
+	try:
+		return (1 - ((1 - l[0]) * (1 - r[0])),
+			1 - ((1 - l[1]) * (1 - r[1])),
+			1 - ((1 - l[2]) * (1 - r[2])))
+	except TypeError:
+		return 1 - ((1 - l) * (1 - r))
+
+unary_funcs_by_op = {
+	ast.UAdd: lambda operand: operand,
+	ast.USub: unary_sub,
+}
+
+binary_funcs_by_op = {
+	ast.Add: binary_add,
+	ast.Sub: binary_sub,
+	ast.Mult: binary_mult,
+}
+# functions available in the fuck DSL
+funcs_by_name = {
+	# value functions - Take theta and produce 0 to 1. Should rougly follow cosine in phase-ness
+	"cos": lambda th: (math.cos(th) + 1) / 2,
+	"sin": lambda th: (math.sin(th) + 1) / 2,
+	"sqr": lambda th: 1 if th < TAU / 2 else 0,
+	"tri": lambda th: th / (TAU / 2) if th < TAU / 2 else 1 - (th / (TAU / 2)),
+
+	# Interpolaters - take a value and return an RGB tuple
+	"R": lambda v: (v, 0, 0),
+	"G": lambda v: (0, v, 0),
+	"B": lambda v: (0, 0, v),
+	"Y": lambda v: (v, v, 0),
+	"C": lambda v: (0, v, v),
+	"M": lambda v: (v, 0, v),
+	"W": lambda v: (v, v, v),
+}
+# Constants  available in the fuck DSL
+constants_by_name = { 
+	"TAU": TAU,
+}
+
+pat_args = ['th']
+
+globals_dict = {k: v for k, v in itertools.chain(funcs_by_name.items(), constants_by_name.items(), zip(pat_args, itertools.repeat(None)))}
+
+def fuckparse(arg_str):
+
+	a = ast.parse(arg_str, mode="eval")
+	lamb = ast.Lambda(args=ast.arguments(args=[ast.arg(arg=arg, annotation=None) for arg in pat_args],
+										 vararg=None, kwonlyargs=[],
+										 kw_defaults=[], kwarg=None, defaults=[]),
+				  body=a.body)
+	fn_ast = ast.Expression(body=lamb)
+	for node in ast.walk(fn_ast): # ast.fix_missing_locations seems to not.
+		node.lineno, node.col_offset = (0,0)
+		if isinstance(node, ast.Name) and not node.id in globals_dict.keys():
+			raise SyntaxError("Name %s unknown" % node.id)
+	co = compile(fn_ast, filename="<fuck>", mode="eval")
+	fn = eval(co, globals_dict)
+	return fn
+ 
+# All the math above works from 0 to 1 floating point, PRUs want 0 to 255 fixed point
+def clamp_and_rerange(R, G, B):
+	return (max(0, min(int(R * 255), 255)),
+		max(0, min(int(G * 255), 255)),
+		max(0, min(int(B * 255), 255)))
+
 def cmd_clear(pru, color_str=None):
 	if color_str is not None:
 		color = ast.literal_eval(color_str)
@@ -152,31 +256,24 @@ def cmd_pulse(pru):
 	etime = time.time()
 	print("%s frames in %s seconds -- %s fps" % (n, etime - stime, float(n) / (etime - stime)))
 
-pattern_funcs_by_name = { # range from 0 to 1
-	"sin": lambda t: (sin(t)/ 2) + 0.5, 
-	"square": lambda t: (1 if t < TAU / 2 else 0),
-	"R": lambda v: (v, 0, 0),
-	"G": lambda v: (0, v, 0),
-	"B": lambda v: (0, 0, v),
-}
+
 def cmd_pattern(pru, arg_str):
 	strand, period, arg_str = arg_str.split(maxsplit=2)
 	strand = int(strand)
 	period = int(period)
-	tree = ast.parse(arg_str, mode="eval")
-	pattern_args = ["th"]
-	for node in ast.walk(tree):
-		if isinstance(node, ast.Name):
-			if not node.id in pattern_funcs_by_name.keys() and node.id not in pattern_args:
-				raise ValueError("Unknown function or variable?" + node.id)
-	tree_wrapped = ast.Expression(ast.Lambda(ast.arguments([ast.arg(v, '') for v in pattern_args], ast.arg(), [], ast.arg(), [], []), tree))
-	tree_wrapped.lineno = 0
-	tree_wrapped.col_offset = 0
-	ast.fix_missing_locations(tree_wrapped)
-	co = compile(tree_wrapped, filename="<fuck>", mode="eval")
-	func = eval(co, pattern_funcs_by_name)
-	rgb_by_led = map(func, map(lambda pos: float(pos) / period * TAU, range(pru.strand_len)))
-	pru.set_strand(strand, rgb_by_led)
+	fn = fuckparse(arg_str)
+	if strand in animations_by_strand:
+		del animations_by_strand[strand]
+	pru.pattern(strand, period, fn, 0)
+
+
+def cmd_roll(pru, arg_str):
+	strand, period, rpm, arg_str = arg_str.split(maxsplit=3)
+	strand = int(strand)
+	period = int(period)
+	rpm = int(rpm)
+	fn = fuckparse(arg_str)
+	animations_by_strand[strand] = (fn, period, rpm)
 
 def cmd_set(pru, arg_str=None):
 	strand, arg_str = arg_str.split(maxsplit=1)
@@ -201,11 +298,17 @@ funcs_by_cmd = {
 	"help": lambda pru: print("\n".join(funcs_by_cmd.keys())),
 	"print": cmd_print,
 	"pattern": cmd_pattern,
+	"roll": cmd_roll,
 	"set": cmd_set,
 }
 
+animations_by_strand = {} # strand no => (fn, period, rpm)
 def display_thread_main(pru): # Ghetto ass shit because I can't figure out why the fucking thing keeps hanging
+	start = time.time()
 	while True:
+		elapsed_min = time.time() - start / 60.
+		for strand, (fn, period, rpm) in animations_by_strand.items():
+			pru.pattern(strand, period, fn, elapsed_min * rpm)
 		pru.display()
 
 if __name__ == "__main__":
@@ -221,7 +324,7 @@ if __name__ == "__main__":
 		open(histfile, 'wb').close()
 	try:
 		while True:
-			sys.stdout.write(": ")
+			sys.stdout.write("🍆 ")
 			raw = input()
 			if raw.strip() == '':
 				print("No.")

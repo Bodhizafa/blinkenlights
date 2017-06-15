@@ -125,7 +125,7 @@ class PRU(object):
 
 	# Sets a strand to a pattern, given by a function from 0-TAU => (0-1, 0-1, 0-1) (i.e. one made by fuckparse)
 	def pattern(self, strand, period, fn, t):
-		leds = map(lambda th: clamp_and_rerange(*fn(th + t)), map(lambda ledno: float(ledno) / float(period) * TAU, range(self.strand_len)))
+		leds = map(lambda th: clamp_and_rerange(*fn(th + t * TAU)), map(lambda ledno: float(ledno) / float(period) * TAU, range(self.strand_len)))
 		self.set_strand(strand, list(leds))
 
 # color-friendly operators. Should all take either an RGB tuple or a value and return the same.
@@ -306,7 +306,7 @@ animations_by_strand = {} # strand no => (fn, period, rpm)
 def display_thread_main(pru): # Ghetto ass shit because I can't figure out why the fucking thing keeps hanging
 	start = time.time()
 	while True:
-		elapsed_min = time.time() - start / 60.
+		elapsed_min = (time.time() - start) / 60.
 		for strand, (fn, period, rpm) in animations_by_strand.items():
 			pru.pattern(strand, period, fn, elapsed_min * rpm)
 		pru.display()

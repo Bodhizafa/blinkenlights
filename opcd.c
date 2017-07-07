@@ -138,9 +138,11 @@ void opc_malloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
 }
 
 struct __attribute__((__packed__)) opc_pkt {
-	uint32_t pkt_len;
-	uint16_t channel;
-	uint16_t command;
+	struct __attribute((__packed__)) {
+		uint8_t channel;
+		uint8_t command;
+		uint16_t body_len;
+	} hdr;
 	char body[];
 };
 
@@ -148,8 +150,8 @@ struct opc_uv_data {
 	uv_mutex_t lock;
 	enum {
 		COMPLETED, 	// pkt is unallocated (and should be NULL)
-		PARTIAL_LEN,	// pkt is a 4 byte allocation, size has not yet been recieved
-		COMPLETED_LEN,	// pkt is a 4 byte allocation, size has been recieved
+		PARTIAL_HDR,	// pkt is a 4 byte allocation, size has not yet been recieved
+		COMPLETED_HDR,	// pkt is a 4 byte allocation, size has been recieved
 		ALLOCATED	// pkt is fully allocated
 		
 	} pkt_state;
@@ -160,7 +162,7 @@ struct opc_uv_data {
 	};
 };
 
-// CAMP is stateless and pragmatically a bit dumpster, so we don't get a client reference
+// OPC is stateless and pragmatically a bit dumpster, so we don't get a client reference
 void opc_dispatch(struct opc_pkt* p) { 
 	fprintf(stderr, "Complete packet recieved");
 };
@@ -181,62 +183,67 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 		uv_mutex_lock(&(uv_data->lock));
 		char* buf = uv_buf->base;
 		while (nread > 0) {
-			switch (uv_data.pkt_state) {
+			switch (uv_data->pkt_state) {
 				case COMPLETED:
-					uv_data.pkt = malloc(sizeof(uv_data.pkt->pkt_len))
-					if (nread < sizeof(uv_data.pkt->pkt_len)) {
-						uv_data.pkt_state = PARTIAL_LEN;
-						memcpy(uv_data.pkt, buf, nread);
-						uv_data.pkt_sofar = nread;
+					uv_data->pkt = malloc(sizeof(uv_data->pkt->hdr));
+					if (nread < sizeof(uv_data->pkt->hdr)) {
+						uv_data->pkt_state = PARTIAL_HDR;
+						memcpy(uv_data->pkt, buf, nread);
+						uv_data->pkt_sofar = nread;
 						nread = 0;
 						break;
 						// done
 					} else {
 						// In this case we malloc and immediately realloc, which isn't great.
-						uv_data.pkt_state = COMPLETED_LEN;
-						memcpy(uv_data.pkt, buf->base, sizeof(uv_data.pkt->pkt_len));
-						uv_data.pkt_sofar = sizeof(uv_data.pkt->pkt_len);
-						buf += sizeof(uv_data.pkt->pkt_len);
-						nread -= sizeof(uv_data.pkt->pkt_len);
+						uv_data->pkt_state = COMPLETED_HDR;
+						memcpy(uv_data->pkt, buf, sizeof(uv_data->pkt->hdr));
+						uv_data->pkt_sofar = sizeof(uv_data->pkt->hdr);
+						buf += sizeof(uv_data->pkt->hdr);
+						nread -= sizeof(uv_data->pkt->hdr);
 						goto completed_len;
 					}
-				case PARTIAL_LEN:
-					if (nread + uv_data.pkt_sofar < sizeof(uv_data.pkt->pkt_len)) {
-						// length is still partial
-						memcpy(uv_data.pkt_ptr + uv_data.pkt_sofar, buf, nread);
-						uv_data.pkt_sofar += nread;
+				case PARTIAL_HDR:
+					if (nread + uv_data->pkt_sofar < sizeof(uv_data->pkt->hdr)) {
+						// header is still partial
+						memcpy(uv_data->pkt_ptr + uv_data->pkt_sofar, buf, nread);
+						uv_data->pkt_sofar += nread;
 						nread = 0;
 						break;
 						// done
 					} else {
-						// We got the whole length, and we had part of it before. 
-						uv_data.pkt_state = COMPLETED_LEN;
-						size_t to_copy = sizeof(uv_data.pkt->pkt_len) - uv_data.pkt_sofar;
-						memcpy(uv_data.pkt_ptr + uv_data.pkt_sofar, buf, to_copy);
-						uv_data.pkt_sofar = sizeof(uv_data.pkt->pkt_len);
+						// We got the whole header, and we had part of it before. 
+						uv_data->pkt_state = COMPLETED_HDR;
+						size_t to_copy = sizeof(uv_data->pkt->hdr) - uv_data->pkt_sofar;
+						memcpy(uv_data->pkt_ptr + uv_data->pkt_sofar, buf, to_copy);
+						uv_data->pkt_sofar = sizeof(uv_data->pkt->hdr);
 						buf += to_copy;
 						nread -= to_copy;
 						// fallthrough
 					}
 				completed_len:
-				case COMPLETED_LEN:
-					uv_data.pkt = realloc(uv_data.pkt, uv_data.pkt->pkt_len)
-					uv_data.pkt_state = ALLOCATED;
+				case COMPLETED_HDR:
+					uv_data->pkt = realloc(uv_data->pkt, uv_data->pkt->hdr.body_len + sizeof(uv_data->pkt->hdr));
+					uv_data->pkt_state = ALLOCATED;
+					uv_data->pkt->hdr.body_len = ntohs(uv_data->pkt->hdr.body_len);
 					// fallthrough
 				case ALLOCATED:
-					if (nread  + uv_data.pkt_sofar >= uv_data.pkt->pkt_size) { // we got the end of the packet
-						uv_data.pkt_state = COMPLETED;
-						to_copy = uv_data.pkt_sofar - uv_data.pkt.pkt_size;
+					;
+					size_t to_copy;
+					// TODO fix this
+					if (nread + uv_data->pkt_sofar >= (sizeof(uv_data->pkt->hdr) + uv_data->pkt->hdr.body_len)) { // we got the end of the packet
+						uv_data->pkt_state = COMPLETED;
+						to_copy = uv_data->pkt->hdr.body_len - uv_data->pkt_sofar - sizeof(uv_data->pkt->hdr);
 					} else {
 						to_copy = nread;
-						uv_data.pkt_sofar += nread;
+						uv_data->pkt_sofar += nread;
 					}
-					memcpy(uv_data.pkt_ptr + uv_data.pkt_sofar, buf, to_copy);
-					uv_data.pkt_sofar += to_copy;
+					memcpy(uv_data->pkt_ptr + uv_data->pkt_sofar, buf, to_copy);
+					uv_data->pkt_sofar += to_copy;
+					nread -= to_copy;
+					buf += to_copy;
 			}
 		}
-		//  TODO The shit that was here was wrong
-		uv_mutex_unlock(&(uv_data.lock));
+		uv_mutex_unlock(&(uv_data->lock));
 	} else if (nread < 0) {
 		if (nread != UV_EOF) {
 			fprintf(stderr, "Read error %s\n", uv_strerror(nread));
@@ -245,7 +252,7 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 		}
 		uv_close((uv_handle_t*)client, on_close);
 	}
-	free(buf->base);
+	free(uv_buf->base);
 }
 
 void on_connect(uv_stream_t* server, int status) {
@@ -261,14 +268,14 @@ void on_connect(uv_stream_t* server, int status) {
 		return;
 	}
 	uv_tcp_init(server->loop, client);
-	sturct opc_data uv_data = calloc(1, sizeof(uv_data));
+	struct opc_uv_data *uv_data = calloc(1, sizeof(uv_data));
 	if (uv_data == NULL) {
 		fprintf(stderr, "Allocating client data failed");
 		free(client);
 		return;
 	}
-	uv_mutex_init(&(uv_data.lock));
-	client->data  = calloc(sizeof(*(client->data)));
+	uv_mutex_init(&(uv_data->lock));
+	client->data  = calloc(1, sizeof(*(client->data)));
 	if (uv_accept(server, (uv_stream_t*)client) == 0) {
 		uv_read_start((uv_stream_t*)client, opc_malloc, on_recv);
 	} else {

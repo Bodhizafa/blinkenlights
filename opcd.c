@@ -132,20 +132,20 @@ bool init() {
 }
 // LibUV allows custom memory allocators. We don't care, but we need to provide an allocator
 // So we use a shim around malloc
-void camp_malloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
+void opc_malloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
     buf->base = (char*)malloc(suggested_size);
     buf->len = suggested_size;
 }
 
-struct __attribute__((__packed__)) camp_pkt {
+struct __attribute__((__packed__)) opc_pkt {
 	uint32_t pkt_len;
 	uint16_t channel;
 	uint16_t command;
 	char body[];
 };
 
-struct camp_uv_data {
-	struct lock lock;
+struct opc_uv_data {
+	uv_mutex_t lock;
 	enum {
 		COMPLETED, 	// pkt is unallocated (and should be NULL)
 		PARTIAL_LEN,	// pkt is a 4 byte allocation, size has not yet been recieved
@@ -155,13 +155,13 @@ struct camp_uv_data {
 	} pkt_state;
 	size_t pkt_sofar; // Bytes so far (i.e. current offset into buf). 0 if last packet was completed
 	union {
-		struct camp_pkt* pkt; // Pointer to packet buffer. NULL if last packet was completed
+		struct opc_pkt* pkt; // Pointer to packet buffer. NULL if last packet was completed
 		char* pkt_ptr;
 	};
 };
 
 // CAMP is stateless and pragmatically a bit dumpster, so we don't get a client reference
-void camp_dispatch(struct camp_packet* p) { 
+void opc_dispatch(struct opc_pkt* p) { 
 	fprintf(stderr, "Complete packet recieved");
 };
 
@@ -170,16 +170,16 @@ void on_close(uv_handle_t *handle) {
 	free(handle);
 }
 
-void on_packet(uv_stream_t* client, struct camp_pkt* pkt) {
-	printf("Recieved packet len %d channel %hx", //TODO this
+void on_packet(uv_stream_t* client, struct opc_pkt* pkt) {
+	printf("Recieved packet"); //TODO this
 }
 
 void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 	if (nread > 0) {
-		printf("Got a packet \n%.*s\n", buf->len);
-		struct camp_uv_data* uv_data = (struct camp_uv_data*)client->data;
-		uv_mutex_lock(&(uv_data.lock));
-		char* buf = buf->base;
+		printf("Got a packet \n%.*s\n", uv_buf->len);
+		struct opc_uv_data* uv_data = (struct opc_uv_data*)client->data;
+		uv_mutex_lock(&(uv_data->lock));
+		char* buf = uv_buf->base;
 		while (nread > 0) {
 			switch (uv_data.pkt_state) {
 				case COMPLETED:
@@ -261,16 +261,16 @@ void on_connect(uv_stream_t* server, int status) {
 		return;
 	}
 	uv_tcp_init(server->loop, client);
-	sturct camp_data uv_data = calloc(1, sizeof(uv_data));
+	sturct opc_data uv_data = calloc(1, sizeof(uv_data));
 	if (uv_data == NULL) {
 		fprintf(stderr, "Allocating client data failed");
 		free(client);
 		return;
 	}
 	uv_mutex_init(&(uv_data.lock));
-	client->data  = calloc(sizeof(
+	client->data  = calloc(sizeof(*(client->data)));
 	if (uv_accept(server, (uv_stream_t*)client) == 0) {
-		uv_read_start((uv_stream_t*)client, camp_malloc, on_recv);
+		uv_read_start((uv_stream_t*)client, opc_malloc, on_recv);
 	} else {
 		fprintf(stderr, "uv_accept failed");
 		uv_close((uv_handle_t*)client, on_close);

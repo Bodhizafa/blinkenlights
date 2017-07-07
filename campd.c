@@ -133,7 +133,7 @@ bool init() {
 // LibUV allows custom memory allocators. We don't care, but we need to provide an allocator
 // So we use a shim around malloc
 void camp_malloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
-    buf->base = (char*) malloc(suggested_size);
+    buf->base = (char*)malloc(suggested_size);
     buf->len = suggested_size;
 }
 
@@ -146,8 +146,18 @@ struct camp_pkt __attribute__((__packed__)) {
 
 struct camp_uv_data {
 	struct lock;
-	size_t buf_sofar; // Bytes so far (i.e. current offset into buf). 0 if last packet was completed
-	struct camp_pkt* pkt; // Pointer to packet buffer. NULL if last packet was completed
+	enum {
+		COMPLETE, 	// pkt is unallocated (and should be NULL)
+		PARTIAL_LEN,	// pkt is a 4 byte allocation, size has not yet been recieved
+		COMPLETED_LEN,	// pkt is a 4 byte allocation, size has been recieved
+		ALLOCATED	// pkt is fully allocated
+		
+	} pkt_state;
+	size_t pkt_sofar; // Bytes so far (i.e. current offset into buf). 0 if last packet was completed
+	union {
+		struct camp_pkt* pkt; // Pointer to packet buffer. NULL if last packet was completed
+		char* pkt_ptr;
+	};
 };
 
 // CAMP is stateless and pragmatically a bit dumpster, so we don't get a client reference
@@ -160,23 +170,72 @@ void on_close(uv_handle_t *handle) {
 	free(handle);
 }
 
-
-void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
+void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 	if (nread > 0) {
+		printf("Got a packet \n%.*s\n", buf->len);
 		struct camp_uv_data* uv_data = (struct camp_uv_data*)client->data;
 		uv_mutex_lock(&(uv_data.lock));
-		printf("Got a packet \n%.*s\n", buf->len, buf->base);
-		// The shit that was here was wrong
-		uv_mutex_lock(&(uv_data.lock));
+		char* buf = buf->base;
+		while (nread > 0) {
+			switch (uv_data.pkt_state) {
+				case COMPLETE:
+					uv_data.pkt = malloc(sizeof(uv_data.pkt->pkt_len))
+					if (nread < sizeof(uv_data.pkt->pkt_len)) {
+						uv_data.pkt_state = PARTIAL_LEN;
+						memcpy(uv_data.pkt, buf, nread);
+						nread = 0;
+						break;
+						// done
+					} else {
+						// In this case we malloc and immediately realloc, which isn't great,
+						// but the resultant if trees from doing it elsewise were narst
+						uv_data.pkt_state = COMPLETED_LEN;
+						memcpy(uv_data.pkt, buf->base, sizeof(uv_data.pkt->pkt_len));
+						uv_data.pkt_sofar = sizeof(uv_data.pkt->pkt_len);
+						buf += sizeof(uv_data.pkt->pkt_len);
+						nread -= sizeof(uv_data.pkt->pkt_len);
+						goto completed_len;
+					}
+				case PARTIAL_LEN:
+					if (nread + uv_data.pkt_sofar < sizeof(uv_data.pkt->pkt_len)) {
+						// length is still partial
+						memcpy(uv_data.pkt_ptr + uv_data.pkt_sofar, buf, nread);
+						uv_data.pkt_sofar += nread;
+						nread = 0;
+						break;
+						// done
+					} else {
+						uv_data.pkt_state = COMPLETED_LEN;
+						size_t to_copy = sizeof(uv_data.pkt->pkt_len) - uv_data.pkt_sofar;
+						memcpy(uv_data.pkt_ptr + uv_data.pkt_sofar, buf, to_copy);
+						uv_data.pkt_sofar = sizeof(uv_data.pkt->pkt_len);
+						buf += to_copy;
+						nread -= to_copy;
+						// fallthrough
+					}
+				completed_len:
+				case COMPLETE_LEN:
+					uv_data.pkt = realloc(uv_data.pkt, uv_data.pkt->pkt_len)
+					uv_data.pkt_state = ALLOCATED;
+					// fallthrough
+				case ALLOCATED:
+					to_copy = nread > uv_data.pkt->pkt_size ? nread : uv_data.pkt->pkt_size;
+					memcpy(uv_data.pkt_ptr + uv_data.pkt_sofar, buf, to_copy);
+					buf += to_copy;
+					nread -= to_copy;
+					uv_data.pkt_sofar += to_copy;
+			}
+		}
+		//  TODO The shit that was here was wrong
+		uv_mutex_unlock(&(uv_data.lock));
 	} else if (nread < 0) {
 		if (nread != UV_EOF) {
 			fprintf(stderr, "Read error %s\n", uv_strerror(nread));
 		} else {
-			fprintf(stderr, "Client disconnected %s\n", uv_strerror(nread));
+			fprintf(stdout, "Client disconnected %s\n", uv_strerror(nread));
 		}
 		uv_close((uv_handle_t*)client, on_close);
 	}
-	fail:
 	free(buf->base);
 }
 
@@ -185,7 +244,7 @@ void on_connect(uv_stream_t* server, int status) {
 		fprintf(stderr, "New connection error %s\n", uv_strerror(status));
 		return;
 	} else {
-		fprintf(stderr, "New Client connection");
+		fprintf(stdout, "New Client connection");
 	}
 	uv_tcp_t *client = malloc(sizeof(uv_tcp_t));
 	if (client == NULL) {
@@ -200,7 +259,7 @@ void on_connect(uv_stream_t* server, int status) {
 		return;
 	}
 	uv_mutex_init(&(uv_data.lock));
-	client->data
+	client->data  = calloc(sizeof(
 	if (uv_accept(server, (uv_stream_t*)client) == 0) {
 		uv_read_start((uv_stream_t*)client, camp_malloc, on_recv);
 	} else {

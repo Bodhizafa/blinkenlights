@@ -16,7 +16,7 @@ install: build/am335x-pru0-fw build/am335x-pru1-fw
 	$(MAKE) restartpru
 
 magic: install
-	./fuck.py 0 --len 300
+	./fuck.py 0 --len 30
 
 build:
 	mkdir build
@@ -36,7 +36,7 @@ build/am335x-pru1-fw.obj: pru_main.c resource_table.h build
 	$(CLPRU) -DPRU_NO=1 $(CLPRU_INCLUDES) $(CLPRU_CFLAGS) -febuild/am335x-pru1-fw.obj ./pru_main.c 
 
 build/campd: campd.c
-	$(CC) -g3 -ggdb -std=gnu99 -Werror campd.c -o build/campd -luv
+	$(CC) -std=gnu11 -g3 -ggdb -Werror campd.c -o build/campd -luv
 
 restartpru:  # If it's not already started, the write to unbind will fail
 	echo "4a338000.pru1" > /sys/bus/platform/drivers/pru-rproc/unbind || true

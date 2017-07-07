@@ -12,18 +12,18 @@
 
 #define NUM_PRUS 2
 
-typedef struct {
+typedef struct pru {
 	int msg_fd;
 	uint16_t* fb;
 	uint32_t fblen;
-} pru;
+} pru_t;
 
-typedef struct __attribute__((__packed__)) {
+typedef struct __attribute__((__packed__)) addr_msg {
 	uint32_t pa;
 	uint32_t len;
-} addr_msg;
+} addr_msg_t;
 
-static pru prus[NUM_PRUS];
+static pru_t prus[NUM_PRUS];
 
 bool write_str(int fd, char* str) {
 	size_t len = strlen(str);
@@ -108,7 +108,7 @@ bool init() {
 	for (int i = 0; i < NUM_PRUS; i++) {
 		write_str(prus[i].msg_fd, "a");
 		// Read framebuffer info from the PRU
-		addr_msg msg = {0, 0};
+		addr_msg_t msg = {0, 0};
 		if (!read_buf(prus[i].msg_fd, &msg, sizeof(msg))) {
 			printf("PRU %d ", i);
 			perror("Reading FB info");
@@ -137,7 +137,7 @@ void camp_malloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
     buf->len = suggested_size;
 }
 
-struct camp_pkt __attribute__((__packed__)) {
+struct __attribute__((__packed__)) camp_pkt {
 	uint32_t pkt_len;
 	uint16_t channel;
 	uint16_t command;
@@ -145,9 +145,9 @@ struct camp_pkt __attribute__((__packed__)) {
 };
 
 struct camp_uv_data {
-	struct lock;
+	struct lock lock;
 	enum {
-		COMPLETE, 	// pkt is unallocated (and should be NULL)
+		COMPLETED, 	// pkt is unallocated (and should be NULL)
 		PARTIAL_LEN,	// pkt is a 4 byte allocation, size has not yet been recieved
 		COMPLETED_LEN,	// pkt is a 4 byte allocation, size has been recieved
 		ALLOCATED	// pkt is fully allocated
@@ -170,6 +170,10 @@ void on_close(uv_handle_t *handle) {
 	free(handle);
 }
 
+void on_packet(uv_stream_t* client, struct camp_pkt* pkt) {
+	printf("Recieved packet len %d channel %hx", //TODO this
+}
+
 void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 	if (nread > 0) {
 		printf("Got a packet \n%.*s\n", buf->len);
@@ -178,17 +182,17 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 		char* buf = buf->base;
 		while (nread > 0) {
 			switch (uv_data.pkt_state) {
-				case COMPLETE:
+				case COMPLETED:
 					uv_data.pkt = malloc(sizeof(uv_data.pkt->pkt_len))
 					if (nread < sizeof(uv_data.pkt->pkt_len)) {
 						uv_data.pkt_state = PARTIAL_LEN;
 						memcpy(uv_data.pkt, buf, nread);
+						uv_data.pkt_sofar = nread;
 						nread = 0;
 						break;
 						// done
 					} else {
-						// In this case we malloc and immediately realloc, which isn't great,
-						// but the resultant if trees from doing it elsewise were narst
+						// In this case we malloc and immediately realloc, which isn't great.
 						uv_data.pkt_state = COMPLETED_LEN;
 						memcpy(uv_data.pkt, buf->base, sizeof(uv_data.pkt->pkt_len));
 						uv_data.pkt_sofar = sizeof(uv_data.pkt->pkt_len);
@@ -205,6 +209,7 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 						break;
 						// done
 					} else {
+						// We got the whole length, and we had part of it before. 
 						uv_data.pkt_state = COMPLETED_LEN;
 						size_t to_copy = sizeof(uv_data.pkt->pkt_len) - uv_data.pkt_sofar;
 						memcpy(uv_data.pkt_ptr + uv_data.pkt_sofar, buf, to_copy);
@@ -214,15 +219,19 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 						// fallthrough
 					}
 				completed_len:
-				case COMPLETE_LEN:
+				case COMPLETED_LEN:
 					uv_data.pkt = realloc(uv_data.pkt, uv_data.pkt->pkt_len)
 					uv_data.pkt_state = ALLOCATED;
 					// fallthrough
 				case ALLOCATED:
-					to_copy = nread > uv_data.pkt->pkt_size ? nread : uv_data.pkt->pkt_size;
+					if (nread  + uv_data.pkt_sofar >= uv_data.pkt->pkt_size) { // we got the end of the packet
+						uv_data.pkt_state = COMPLETED;
+						to_copy = uv_data.pkt_sofar - uv_data.pkt.pkt_size;
+					} else {
+						to_copy = nread;
+						uv_data.pkt_sofar += nread;
+					}
 					memcpy(uv_data.pkt_ptr + uv_data.pkt_sofar, buf, to_copy);
-					buf += to_copy;
-					nread -= to_copy;
 					uv_data.pkt_sofar += to_copy;
 			}
 		}

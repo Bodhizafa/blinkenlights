@@ -1,3 +1,9 @@
+/*
+   Sleketon appropriated from: https://raw.githubusercontent.com/trevnorris/libuv-examples/master/tcp-echo.c
+   Everything else by Landon Meernik
+ */
+#include <stdlib.h>
+#include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -5,17 +11,30 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
-#include <uv.h>
+#include <assert.h>
 
+#include "uv.h"
+#define OPC_PIXEL_DATA 0
+#define OPC_TEST 254
+#define OPC_SYSEX 255
+
+
+#define STRAND_LEN 600
+#define PORT 42024
 #define NUM_PRUS 2
+
+struct __attribute__((__packed__)) color {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+};
 
 typedef struct pru {
 	int msg_fd;
 	uint16_t* fb;
 	uint32_t fblen;
+    struct color *rgb_fb[16];
 } pru_t;
 
 typedef struct __attribute__((__packed__)) addr_msg {
@@ -117,24 +136,66 @@ bool init() {
 		prus[i].fblen = msg.len;
 		// Map the memory
 		prus[i].fb = mmap(NULL, prus[i].fblen, PROT_READ | PROT_WRITE, 
-		                  MAP_SHARED | MAP_LOCKED, devmem_fd, msg.pa);
+				0, devmem_fd, msg.pa);
 		if (prus[i].fb == MAP_FAILED) {
 			printf("PRU %d ", i);
 			perror("mmap failed");
 			return false;
 		}
 		printf("PRU %d FD %d Address 0x%x => %p len 0x%x\n", 
-		       i, prus[i].msg_fd, msg.pa, prus[i].fb, prus[i].fblen);
-		
+				i, prus[i].msg_fd, msg.pa, prus[i].fb, prus[i].fblen);
+
+        // Allocate the RGB framebuffer
+        for (int j = 0; j < 16; j++) {
+            prus[i].rgb_fb[j] = calloc(STRAND_LEN * 3, 1);
+        }
 	}
+    
 	// In theory we're done
 	return true;
 }
-// LibUV allows custom memory allocators. We don't care, but we need to provide an allocator
-// So we use a shim around malloc
-void opc_malloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
-    buf->base = (char*)malloc(suggested_size);
-    buf->len = suggested_size;
+
+typedef struct {
+	uv_write_t req;
+	uv_buf_t buf;
+} write_req_t;
+
+static uint64_t data_cntr = 0;
+
+
+static void on_close(uv_handle_t* handle) {
+	free(handle);
+}
+
+
+static void after_write(uv_write_t* req, int status) {
+	write_req_t* wr = (write_req_t*)req;
+
+	if (wr->buf.base != NULL)
+		free(wr->buf.base);
+	free(wr);
+
+	if (status == 0)
+		return;
+
+	fprintf(stderr, "uv_write error: %s\n", uv_strerror(status));
+
+	if (status == UV_ECANCELED)
+		return;
+
+	assert(status == UV_EPIPE);
+	uv_close((uv_handle_t*)req->handle, on_close);
+}
+
+
+static void after_shutdown(uv_shutdown_t* req, int status) {
+	/*assert(status == 0);*/
+	if (status < 0)
+		fprintf(stderr, "err: %s\n", uv_strerror(status));
+	fprintf(stderr, "data received: %lu\n", data_cntr / 1024 / 1024);
+	data_cntr = 0;
+	uv_close((uv_handle_t*)req->handle, on_close);
+	free(req);
 }
 
 struct __attribute__((__packed__)) opc_pkt {
@@ -149,11 +210,12 @@ struct __attribute__((__packed__)) opc_pkt {
 struct opc_uv_data {
 	uv_mutex_t lock;
 	enum {
+        INIT,
 		COMPLETED, 	// pkt is unallocated (and should be NULL)
 		PARTIAL_HDR,	// pkt is a 4 byte allocation, size has not yet been recieved
 		COMPLETED_HDR,	// pkt is a 4 byte allocation, size has been recieved
 		ALLOCATED	// pkt is fully allocated
-		
+
 	} pkt_state;
 	size_t pkt_sofar; // Bytes so far (i.e. current offset into buf). 0 if last packet was completed
 	union {
@@ -162,28 +224,67 @@ struct opc_uv_data {
 	};
 };
 
+// This transforms bits from RGB strings in memory to the wonky register-at-a-time format
+// the PRU uses. The dest should be (16 * nlights * 3) bytes, each strand in src should
+// be nlights * 3 lights
+void translate_colors(uint16_t* dst_regs, struct color* src_rgbs[16], size_t nlights) {
+    for (size_t led = 0; led < nlights; led++) {
+        for (uint8_t bit = 7; bit >= 0; bit++) {
+            uint16_t reg = 0;
+            for (uint8_t ch = 0; ch < 16; ch++) {
+                // extract the bit'th bit of the source
+                uint8_t b = src_rgbs[ch][led].r & (1 << bit) ? 1 : 0; 
+                // and shift it into reg in it's channel's pos
+                reg |= b << ch;
+            }
+            *dst_regs = reg;
+            dst_regs++;
+        }
+        // TODO copy and paste the above for B and G
+    }
+}
 // OPC is stateless and pragmatically a bit dumpster, so we don't get a client reference
-void opc_dispatch(struct opc_pkt* p) { 
-	fprintf(stderr, "Complete packet recieved");
+void after_opc_packet(struct opc_pkt* p) { 
+	fprintf(stderr, "Complete packet recieved chan: %hhu command: %hhu len: %hu", 
+            p->hdr.channel, p->hdr.command, p->hdr.body_len);
+    switch(p->hdr.command) {
+    case OPC_PIXEL_DATA:
+        // TODO this
+        break;
+    case OPC_TEST:
+        printf("Testing PRU 0\n");
+        fflush(stdout);
+        for (int ch = 0; ch < 16; ch++) {
+            for (int led = 0; led < 10; led++) {
+                prus[0].rgb_fb[ch][led].r = 32;    
+                prus[0].rgb_fb[ch][led].g = 32;    
+                prus[0].rgb_fb[ch][led].b = 32;    
+            }
+        }
+        translate_colors(prus[0].fb, prus[0].rgb_fb, 10);
+        break;
+    case OPC_SYSEX:
+        // what?
+        break;
+    }
+
+    printf("Done\n");
+    fflush(stdout);
+    free(p);
 };
 
-// libuv Event Handlers
-void on_close(uv_handle_t *handle) {
-	free(handle);
-}
-
-void on_packet(uv_stream_t* client, struct opc_pkt* pkt) {
-	printf("Recieved packet"); //TODO this
-}
-
-void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
+static void after_read(uv_stream_t* client,
+					   ssize_t nread,
+					   const uv_buf_t* uv_buf) {
+	printf("got a something \n%d\n", nread);
+    fflush(stdout);
 	if (nread > 0) {
-		printf("Got a packet \n%.*s\n", uv_buf->len);
 		struct opc_uv_data* uv_data = (struct opc_uv_data*)client->data;
 		uv_mutex_lock(&(uv_data->lock));
 		char* buf = uv_buf->base;
 		while (nread > 0) {
 			switch (uv_data->pkt_state) {
+                case INIT:
 				case COMPLETED:
 					uv_data->pkt = malloc(sizeof(uv_data->pkt->hdr));
 					if (nread < sizeof(uv_data->pkt->hdr)) {
@@ -194,13 +295,13 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 						break;
 						// done
 					} else {
-						// In this case we malloc and immediately realloc, which isn't great.
+						// in this case we malloc and immediately realloc, which isn't great.
 						uv_data->pkt_state = COMPLETED_HDR;
 						memcpy(uv_data->pkt, buf, sizeof(uv_data->pkt->hdr));
 						uv_data->pkt_sofar = sizeof(uv_data->pkt->hdr);
 						buf += sizeof(uv_data->pkt->hdr);
 						nread -= sizeof(uv_data->pkt->hdr);
-						goto completed_len;
+						goto completed_hdr;
 					}
 				case PARTIAL_HDR:
 					if (nread + uv_data->pkt_sofar < sizeof(uv_data->pkt->hdr)) {
@@ -211,7 +312,7 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 						break;
 						// done
 					} else {
-						// We got the whole header, and we had part of it before. 
+						// we got the whole header, and we had part of it before. 
 						uv_data->pkt_state = COMPLETED_HDR;
 						size_t to_copy = sizeof(uv_data->pkt->hdr) - uv_data->pkt_sofar;
 						memcpy(uv_data->pkt_ptr + uv_data->pkt_sofar, buf, to_copy);
@@ -220,7 +321,7 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 						nread -= to_copy;
 						// fallthrough
 					}
-				completed_len:
+                completed_hdr:
 				case COMPLETED_HDR:
 					uv_data->pkt = realloc(uv_data->pkt, uv_data->pkt->hdr.body_len + sizeof(uv_data->pkt->hdr));
 					uv_data->pkt_state = ALLOCATED;
@@ -229,10 +330,9 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 				case ALLOCATED:
 					;
 					size_t to_copy;
-					// TODO fix this
 					if (nread + uv_data->pkt_sofar >= (sizeof(uv_data->pkt->hdr) + uv_data->pkt->hdr.body_len)) { // we got the end of the packet
 						uv_data->pkt_state = COMPLETED;
-						to_copy = uv_data->pkt->hdr.body_len - uv_data->pkt_sofar - sizeof(uv_data->pkt->hdr);
+						to_copy = uv_data->pkt->hdr.body_len - uv_data->pkt_sofar + sizeof(uv_data->pkt->hdr);
 					} else {
 						to_copy = nread;
 						uv_data->pkt_sofar += nread;
@@ -242,75 +342,134 @@ void on_recv(uv_stream_t* client, ssize_t nread, const uv_buf_t* uv_buf) {
 					nread -= to_copy;
 					buf += to_copy;
 			}
+            if (uv_data->pkt_state == COMPLETED) {
+                struct opc_pkt* pkt = uv_data->pkt;
+                uv_data->pkt = NULL;
+                uv_data->pkt_state = INIT;
+                uv_mutex_unlock(&(uv_data->lock));
+                after_opc_packet(pkt); // after_opc_packet owns this memory now.
+            } else {
+                uv_mutex_unlock(&(uv_data->lock));
+            }
 		}
-		uv_mutex_unlock(&(uv_data->lock));
 	} else if (nread < 0) {
 		if (nread != UV_EOF) {
-			fprintf(stderr, "Read error %s\n", uv_strerror(nread));
+			fprintf(stderr, "read error %s\n", uv_strerror(nread));
 		} else {
-			fprintf(stdout, "Client disconnected %s\n", uv_strerror(nread));
+			fprintf(stdout, "client disconnected %s\n", uv_strerror(nread));
 		}
 		uv_close((uv_handle_t*)client, on_close);
 	}
 	free(uv_buf->base);
+	/*
+	   int r;
+	   write_req_t* wr;
+	   uv_shutdown_t* req;
+
+	   if (nread <= 0 && buf->base != NULL)
+	   free(buf->base);
+
+	   if (nread == 0)
+	   return;
+
+	   if (nread < 0) {
+	//assert(nread == UV_EOF);
+	fprintf(stderr, "err: %s\n", uv_strerror(nread));
+
+	req = (uv_shutdown_t*) malloc(sizeof(*req));
+	assert(req != NULL);
+
+	r = uv_shutdown(req, handle, after_shutdown);
+	assert(r == 0);
+
+	return;
+	}
+
+	data_cntr += nread;
+
+	wr = (write_req_t*) malloc(sizeof(*wr));
+	assert(wr != NULL);
+
+	wr->buf = uv_buf_init(buf->base, nread);
+
+	r = uv_write(&wr->req, handle, &wr->buf, 1, after_write);
+	assert(r == 0);
+	 */
 }
 
-void on_connect(uv_stream_t* server, int status) {
-	if (status < 0) {
-		fprintf(stderr, "New connection error %s\n", uv_strerror(status));
-		return;
-	} else {
-		fprintf(stdout, "New Client connection");
-	}
-	uv_tcp_t *client = malloc(sizeof(uv_tcp_t));
-	if (client == NULL) {
-		fprintf(stderr, "Could not allocate client");
-		return;
-	}
-	uv_tcp_init(server->loop, client);
-	struct opc_uv_data *uv_data = calloc(1, sizeof(uv_data));
-	if (uv_data == NULL) {
-		fprintf(stderr, "Allocating client data failed");
-		free(client);
-		return;
-	}
-	uv_mutex_init(&(uv_data->lock));
-	client->data  = calloc(1, sizeof(*(client->data)));
-	if (uv_accept(server, (uv_stream_t*)client) == 0) {
-		uv_read_start((uv_stream_t*)client, opc_malloc, on_recv);
-	} else {
-		fprintf(stderr, "uv_accept failed");
-		uv_close((uv_handle_t*)client, on_close);
-	}
+
+static void alloc_cb(uv_handle_t* handle,
+                     size_t suggested_size,
+                     uv_buf_t* buf) {
+    buf->base = malloc(suggested_size);
+    assert(buf->base != NULL);
+    buf->len = suggested_size;
 }
 
-uv_loop_t* loop;
-int main(int argc, char** argv) {
+
+static void on_connection(uv_stream_t* server, int status) {
+	printf("Got a connection");
+	uv_tcp_t* stream;
+	int r;
+    struct opc_uv_data* uv_data = calloc(sizeof(*uv_data), 1);
+    uv_mutex_init(&uv_data->lock);
+
+	assert(status == 0);
+
+	stream = malloc(sizeof(uv_tcp_t));
+	assert(stream != NULL);
+
+	r = uv_tcp_init(uv_default_loop(), stream);
+	assert(r == 0);
+
+    stream->data = uv_data;
+
+	r = uv_accept(server, (uv_stream_t*)stream);
+	assert(r == 0);
+
+	r = uv_read_start((uv_stream_t*)stream, alloc_cb, after_read);
+	assert(r == 0);
+}
+
+
+static int tcp_echo_server() {
+	uv_tcp_t* tcp_server;
+	struct sockaddr_in addr;
+	int r;
+
+	r = uv_ip4_addr("0.0.0.0", PORT, &addr);
+	assert(r == 0);
+
+	tcp_server = (uv_tcp_t*) malloc(sizeof(*tcp_server));
+	assert(tcp_server != NULL);
+
+	r = uv_tcp_init(uv_default_loop(), tcp_server);
+	assert(r == 0);
+
+	r = uv_tcp_bind(tcp_server, (const struct sockaddr*)&addr, 0);
+	assert(r == 0);
+
+	r = uv_listen((uv_stream_t*)tcp_server, SOMAXCONN, on_connection);
+	assert(r == 0);
+
+	return 0;
+}
+
+
+int main() {
 	printf("Starting\n");
 	if (!init()) {
 		printf("Failed to start PRUs. Reinstall firmware?\n");
 		return 1;
 	}
 	printf("PRUs initialized\n");
-	loop = uv_default_loop();
-	uv_tcp_t server;
-	uv_tcp_init(loop, &server);
-	struct sockaddr_in addr_ip4;
-	uv_ip4_addr("0.0.0.0", 420, &addr_ip4);
-	// TODO IP6 support
-	uv_tcp_bind(&server, (const struct sockaddr*)&addr_ip4, 0);
-	int r = uv_listen((uv_stream_t*)&server, 128, on_connect);
-	if (r) {
-		fprintf(stderr, "Listen error %s\n", uv_strerror(r));
-		return 2;
-	}
-	printf("Starting UV loop\n");
-	r = (uv_run(loop, UV_RUN_DEFAULT));
-	if (r != 0) {
-		printf("UV Exited abnormally %d\n", r);
-		return 3;
-	}
-	printf("UV Loop Exited\n");
-	uv_loop_close(loop);
+	int r;
+
+	r = tcp_echo_server();
+	assert(r == 0);
+
+	r = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
+	assert(r == 0);
+
 	return 0;
 }

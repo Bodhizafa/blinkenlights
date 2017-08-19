@@ -38,7 +38,7 @@ class PRU(object):
 		self.frame = threading.Event()
 		self.no = no
 		self.strand_len = strand_len
-		self.msgfd = os.open("/dev/rpmsg_pru3%d" % gargs.pru, os.O_RDWR)
+		self.msgfd = os.open("/dev/rpmsg_pru3%d" % no, os.O_RDWR)
 		self.send("c", "a".encode('ascii'))
 		memfd = os.open("/dev/mem", os.O_RDWR)
 		addr, size = self.recv('II')
@@ -126,7 +126,7 @@ class PRU(object):
 			print(self.recv("c"))
 
 	# Sets a strand to a pattern, given by a function from 0-TAU => (0-1, 0-1, 0-1) (i.e. one made by fuckparse)
-	def pattern(self, strand, period, fn, t):
+	def pattern(self, strand, period, fn, t=0):
 		leds = map(lambda th: clamp_and_rerange(*fn(th + t * TAU)), map(lambda ledno: float(ledno) / float(period) * TAU, range(self.strand_len)))
 		self.set_strand(strand, list(leds))
 

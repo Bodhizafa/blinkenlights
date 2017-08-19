@@ -54,6 +54,7 @@ struct memmsg {
 	uint32_t pa;
 	uint32_t len;
 };
+
 void main(void)
 {
 	CT_CFG.GPCFG0 = 0;

@@ -1,6 +1,7 @@
 *.swp
 *.swo
 .fuck_history
+.opcc_history
 build/*
 __pycache__
 campd

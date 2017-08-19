@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <assert.h>
+#include <string.h>
 
 #include "uv.h"
 #define OPC_PIXEL_DATA 0
@@ -20,7 +21,7 @@
 #define OPC_SYSEX 255
 
 
-#define STRAND_LEN 600
+#define STRAND_LEN 10
 #define PORT 42024
 #define NUM_PRUS 2
 
@@ -43,18 +44,25 @@ typedef struct __attribute__((__packed__)) addr_msg {
 } addr_msg_t;
 
 static pru_t prus[NUM_PRUS];
+static uv_mutex_t pru_lock;
+static uv_thread_t display_thread;
 
-bool write_str(int fd, char* str) {
-	size_t len = strlen(str);
+
+bool write_buf(int fd, char* buf, size_t len) {
 	while (len > 0) {
-		ssize_t written = write(fd, str, len);
+		ssize_t written = write(fd, buf, len);
 		if (written < 0) {
 			return false;
 		}
-		str += written;
+		buf += written;
 		len -= written;
 	}
 	return true;
+}
+
+bool write_str(int fd, char* str) {
+	size_t len = strlen(str);
+    return write_buf(fd, str, len);
 }
 
 bool read_buf(int fd, void* buf, size_t len) {
@@ -63,12 +71,77 @@ bool read_buf(int fd, void* buf, size_t len) {
 		if (nread < 0) {
 			return false;
 		} else if (nread > len) { // Yeah, this actually happens. Thanks, TI.
-			printf("Read too much shit\n"); 
+			printf("Read too much shit\n");
 			return false;
 		}
 		len -= nread;
 	}
 	return true;
+}
+
+// This transforms bits from RGB strings in memory to the register-at-a-time format
+// pru_main.c expects. The dst should be (16 * nlights * 3) bytes, each strand in src 
+// should nlights * 3 bytes
+uint16_t translate_colors(uint16_t* dst_regs, struct color* src_rgbs[16], size_t nlights) {
+    uint16_t nregs = 0;
+    for (size_t led = 0; led < nlights; led++) {
+        for (int8_t bit = 7; bit >= 0; bit--) {
+            uint16_t reg = 0;
+            for (uint8_t ch = 0; ch < 16; ch++) {
+                // extract the bit'th bit of the source
+                uint8_t b = src_rgbs[ch][led].g & (1 << bit) ? 1 : 0; 
+                // and shift it into reg in it's channel's pos
+                reg |= b << ch;
+            }
+            //printf("led %d bit %hhd %hx\n", led, bit, reg);
+            dst_regs[nregs] = reg;
+            nregs += 1;
+        }
+        for (int8_t bit = 7; bit >= 0; bit--) {
+            uint16_t reg = 0;
+            for (uint8_t ch = 0; ch < 16; ch++) {
+                // extract the bit'th bit of the source
+                uint8_t b = src_rgbs[ch][led].r & (1 << bit) ? 1 : 0; 
+                // and shift it into reg in it's channel's pos
+                reg |= b << ch;
+            }
+            //printf("led %d bit %hhd %hx\n", led, bit, reg);
+            dst_regs[nregs] = reg;
+            nregs += 1;
+        }
+        for (int8_t bit = 7; bit >= 0; bit--) {
+            uint16_t reg = 0;
+            for (uint8_t ch = 0; ch < 16; ch++) {
+                // extract the bit'th bit of the source
+                uint8_t b = src_rgbs[ch][led].b & (1 << bit) ? 1 : 0; 
+                // and shift it into reg in it's channel's pos
+                reg |= b << ch;
+            }
+            //printf("led %d bit %hhd %hx\n", led, bit, reg);
+            dst_regs[nregs] = reg;
+            nregs += 1;
+        }
+        // TODO copy and paste the above for B and G
+    }
+    return nregs;
+}
+
+void display_thread_main(void* arg) {
+    printf("Starting display thread\n");
+    while (true) {
+        uv_mutex_lock(&pru_lock);
+        char buf[3]; // byte 0 is 'd', the other 2 are the number of regs
+        buf[0] = 'd'; // display message
+        uint16_t nregs = translate_colors(prus[0].fb, prus[0].rgb_fb, STRAND_LEN);
+        memcpy(buf + 1, &nregs, sizeof(nregs));
+        write_buf(prus[0].msg_fd, buf, 3);
+        //write_buf(prus[0].msg_fd, "d\0\0", 3);
+        uint16_t nregs_displayed;
+        read_buf(prus[0].msg_fd, &nregs_displayed, 2);
+        uv_mutex_unlock(&pru_lock);
+        //usleep(1000 * 10); 
+        //printf("translated %hu regs, displayed %hu\n", nregs, nregs_displayed);
+    }
 }
 
 bool init() {
@@ -123,6 +196,7 @@ bool init() {
 		perror("Opening /dev/mem");
 		return false;
 	}
+
 	// Get the framebuffer
 	for (int i = 0; i < NUM_PRUS; i++) {
 		write_str(prus[i].msg_fd, "a");
@@ -136,12 +210,13 @@ bool init() {
 		prus[i].fblen = msg.len;
 		// Map the memory
 		prus[i].fb = mmap(NULL, prus[i].fblen, PROT_READ | PROT_WRITE, 
-				0, devmem_fd, msg.pa);
+			              MAP_SHARED | MAP_LOCKED	, devmem_fd, msg.pa); 
 		if (prus[i].fb == MAP_FAILED) {
 			printf("PRU %d ", i);
 			perror("mmap failed");
 			return false;
 		}
+        *prus[i].fb = 9;
 		printf("PRU %d FD %d Address 0x%x => %p len 0x%x\n", 
 				i, prus[i].msg_fd, msg.pa, prus[i].fb, prus[i].fblen);
 
@@ -150,6 +225,7 @@ bool init() {
             prus[i].rgb_fb[j] = calloc(STRAND_LEN * 3, 1);
         }
 	}
+    uv_mutex_init(&pru_lock);
     
 	// In theory we're done
 	return true;
@@ -224,23 +300,26 @@ struct opc_uv_data {
 	};
 };
 
-// This transforms bits from RGB strings in memory to the wonky register-at-a-time format
-// the PRU uses. The dest should be (16 * nlights * 3) bytes, each strand in src should
-// be nlights * 3 lights
-void translate_colors(uint16_t* dst_regs, struct color* src_rgbs[16], size_t nlights) {
-    for (size_t led = 0; led < nlights; led++) {
-        for (uint8_t bit = 7; bit >= 0; bit++) {
-            uint16_t reg = 0;
-            for (uint8_t ch = 0; ch < 16; ch++) {
-                // extract the bit'th bit of the source
-                uint8_t b = src_rgbs[ch][led].r & (1 << bit) ? 1 : 0; 
-                // and shift it into reg in it's channel's pos
-                reg |= b << ch;
-            }
-            *dst_regs = reg;
-            dst_regs++;
-        }
-        // TODO copy and paste the above for B and G
+void print_regbuf(uint16_t* regs, uint16_t nregs) {
+    printf("Dumping %hu regs", nregs);
+    for (int i = 0; i < nregs; i++) {
+        printf("%hu %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c\n", nregs,
+            regs[i] & (1 << 15) ? '1' : '0',
+            regs[i] & (1 << 14) ? '1' : '0',
+            regs[i] & (1 << 13) ? '1' : '0',
+            regs[i] & (1 << 12) ? '1' : '0',
+            regs[i] & (1 << 11) ? '1' : '0',
+            regs[i] & (1 << 10) ? '1' : '0',
+            regs[i] & (1 << 9) ? '1' : '0',
+            regs[i] & (1 << 8) ? '1' : '0',
+            regs[i] & (1 << 7) ? '1' : '0',
+            regs[i] & (1 << 6) ? '1' : '0',
+            regs[i] & (1 << 5) ? '1' : '0',
+            regs[i] & (1 << 4) ? '1' : '0',
+            regs[i] & (1 << 3) ? '1' : '0',
+            regs[i] & (1 << 2) ? '1' : '0',
+            regs[i] & (1 << 1) ? '1' : '0',
+            regs[i] & (1 << 0) ? '1' : '0');
     }
 }
 // OPC is stateless and pragmatically a bit dumpster, so we don't get a client reference
@@ -254,14 +333,29 @@ void after_opc_packet(struct opc_pkt* p) {
     case OPC_TEST:
         printf("Testing PRU 0\n");
         fflush(stdout);
+        for (int i = 0; i < 64; i++) {
+            uv_mutex_lock(&pru_lock);
+            for (int ch = 0; ch < 16; ch++) {
+                for (int led = 0; led < STRAND_LEN; led++) {
+                    prus[0].rgb_fb[ch][led].r = i;
+                    prus[0].rgb_fb[ch][led].g = i;
+                    prus[0].rgb_fb[ch][led].b = i;
+                }
+            }
+            //uint16_t* regbuf = calloc(sizeof(*regbuf), 500);
+            //uint16_t nregs = translate_colors(regbuf, prus[0].rgb_fb, 10);
+            //print_regbuf(regbuf, nregs);
+            // display_thread does the actual displaying
+            uv_mutex_unlock(&pru_lock);
+            usleep(1000*25);
+        }
         for (int ch = 0; ch < 16; ch++) {
             for (int led = 0; led < 10; led++) {
-                prus[0].rgb_fb[ch][led].r = 32;    
-                prus[0].rgb_fb[ch][led].g = 32;    
-                prus[0].rgb_fb[ch][led].b = 32;    
+                prus[0].rgb_fb[ch][led].r = 0;
+                prus[0].rgb_fb[ch][led].g = 0;
+                prus[0].rgb_fb[ch][led].b = 0;
             }
         }
-        translate_colors(prus[0].fb, prus[0].rgb_fb, 10);
         break;
     case OPC_SYSEX:
         // what?
@@ -466,6 +560,9 @@ int main() {
 	int r;
 
 	r = tcp_echo_server();
+	assert(r == 0);
+
+    r = uv_thread_create(&display_thread, display_thread_main, NULL);
 	assert(r == 0);
 
 	r = uv_run(uv_default_loop(), UV_RUN_DEFAULT);

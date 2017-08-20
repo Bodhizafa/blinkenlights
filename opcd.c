@@ -21,7 +21,7 @@
 #define OPC_SYSEX 255
 
 
-#define STRAND_LEN 10
+#define STRAND_LEN 600
 #define PORT 42024
 #define NUM_PRUS 2
 
@@ -222,7 +222,7 @@ bool init() {
 
         // Allocate the RGB framebuffer
         for (int j = 0; j < 16; j++) {
-            prus[i].rgb_fb[j] = calloc(STRAND_LEN * 3, 1);
+            prus[i].rgb_fb[j] = calloc(STRAND_LEN, 3);
         }
 	}
     uv_mutex_init(&pru_lock);
@@ -324,10 +324,24 @@ void print_regbuf(uint16_t* regs, uint16_t nregs) {
 }
 // OPC is stateless and pragmatically a bit dumpster, so we don't get a client reference
 void after_opc_packet(struct opc_pkt* p) { 
-	fprintf(stderr, "Complete packet recieved chan: %hhu command: %hhu len: %hu", 
+	fprintf(stderr, "Complete packet recieved chan: %hhu command: %hhu len: %hu\n", 
             p->hdr.channel, p->hdr.command, p->hdr.body_len);
     switch(p->hdr.command) {
     case OPC_PIXEL_DATA:
+        assert(p->hdr.body_len <= (STRAND_LEN * 3));
+        int startch, endch;
+        if (p->hdr.channel == 0) {
+            startch = 0;
+            endch = 16; // half open range
+        } else {
+            startch = p->hdr.channel - 1;
+            endch = p->hdr.channel;
+        }
+        uv_mutex_lock(&pru_lock);
+        for (int ch = startch; ch < endch; ch++) {
+            memcpy(prus[0].rgb_fb[ch], p->body, p->hdr.body_len);
+        }
+        uv_mutex_unlock(&pru_lock);
         // TODO this
         break;
     case OPC_TEST:
@@ -350,7 +364,7 @@ void after_opc_packet(struct opc_pkt* p) {
             usleep(1000*25);
         }
         for (int ch = 0; ch < 16; ch++) {
-            for (int led = 0; led < 10; led++) {
+            for (int led = 0; led < STRAND_LEN; led++) {
                 prus[0].rgb_fb[ch][led].r = 0;
                 prus[0].rgb_fb[ch][led].g = 0;
                 prus[0].rgb_fb[ch][led].b = 0;
@@ -370,7 +384,7 @@ void after_opc_packet(struct opc_pkt* p) {
 static void after_read(uv_stream_t* client,
 					   ssize_t nread,
 					   const uv_buf_t* uv_buf) {
-	printf("got a something \n%d\n", nread);
+	printf("Got %d bytes.\n", nread);
     fflush(stdout);
 	if (nread > 0) {
 		struct opc_uv_data* uv_data = (struct opc_uv_data*)client->data;

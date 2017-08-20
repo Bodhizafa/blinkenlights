@@ -13,13 +13,14 @@ parser.add_argument("--histfile", type=str, help="History file", default=".opcc_
 parser.add_argument("--port", type=int, default=42024)
 
 def opc_send(socket, channel, command, body):
-    packet = struct.pack(">BBHs", channel, command, len(body), body)
+    blen = len(body)
+    packet = struct.pack(">BBH%ds" % blen, channel, command, blen, body)
     socket.send(packet)
 
 def opc_leds(socket, channel, leds): # leds is a list of (R, G, B) tuples, range 0-1
     color_bytes = [int(byte * 255) for color in leds for byte in color]
     print(repr(color_bytes))
-    body = struct.pack("%dbs" % (3 * len(leds)), 0, body)
+    body = struct.pack("%ds" % (3 * len(leds)), bytearray(color_bytes))
     print(repr(body))
     opc_send(socket, channel, 0, body)
 

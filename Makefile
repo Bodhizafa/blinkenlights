@@ -16,7 +16,7 @@ install: build/am335x-pru0-fw build/am335x-pru1-fw
 	$(MAKE) restartpru
 
 magic: install
-	./fuck.py 0 --len 30
+	./fuck.py --pru 0 --len 30
 
 more_magic: install build/opcd
 	./build/opcd

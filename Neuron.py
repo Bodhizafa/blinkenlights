@@ -22,12 +22,16 @@ import struct
 import io
 import collections
 import itertools
-# Transfer functions - take a float and return a chr
-def clamp(val):
-    return int(max(min(val, 255), 0))
 
 class WhatTheFuck(Exception):
     pass
+
+def color_mult(val, color):
+    R, G, B = color
+    R *= val
+    G *= val
+    B *= val
+    return (R, G, B)
 
 class MoreAbstractModel(object):
     def __init__(self,
@@ -88,7 +92,7 @@ class MoreAbstractModel(object):
         self._synapses[k] = (s, prekey, postkey)
         return (k, s)
 
-class Model2(MoreAbstractModel): # new model supports multiple strands (and uses hella generators)
+class Model2(MoreAbstractModel): # What Single Responsibility Principle?
     default_scale = (1. / 255., 0)
     def __init__(self,
                  dT,
@@ -104,6 +108,13 @@ class Model2(MoreAbstractModel): # new model supports multiple strands (and uses
                 "color": (R, G, B) ranged 0-1,
                 "scale": (multiplier, offset) floats, should result in v being between 0 and 1
             }
+            and they get put into segments_by_strand as:
+            {
+                "start": <first LED>
+                "thing": <reference to Neuron, Synapse, or Blank>
+                "color": <color>
+                "scale": (<multiplier>, <offset>)
+            } 
         """
         super().__init__(dT, neurons, synapses)
         # this becomes a dict of strand: <ordered, nonoverlapping list of segments on that strand>
@@ -126,28 +137,25 @@ class Model2(MoreAbstractModel): # new model supports multiple strands (and uses
 
     def params(self):
         params = super().params()
-        segments = []
-        for strand, segs in self.segments_by_strand.items():
-           segments.extend(({
-                "strand": strand,
-                "start": seg['start'],
-                "key": self.unfind(seg['thing']),
-                "color": seg['color'],
-                "scale": list(seg['scale'])
-            } for seg in segs))
         params.update({
-            "segments": segments
+            "segments": [seg for seg in self.generate_segments() 
+                            if (seg['key'] in self._synapses
+                                or self['key'] in self._neurons)] # we don't care about blanks
         })
         return params
 
     @staticmethod
-    def _fix_segments(segs): # mutates segs such that it contains enough blanks and doesn't contain overlaps
+    def _fix_segments(segs): # mutates segs such that they're contiguous (inserting blanks as necessary) and checks for overlaps
         segs.sort(key=lambda seg: seg['start'])
         for i in range(len(segs) - 1):
             seg = segs[i]
+            nseg = segs[i + 1]
+            segstart = seg['start']
             segend = seg['start'] + seg['thing'].nlights
+            nsegstart = nseg['start']
+            nsegend = nseg['start'] + nseg['thing'].nlights
             # ensure there's no overlaps
-            if segs[i]['start'] + segs[i]['thing'].nlights > segs[i + 1]['start']:
+            if segs[i]['start'] + segs[i]['thing'].nlights >= segs[i + 1]['start']:
                 raise WhatTheFuck("Overlapping segments: %r %r" % (segs[i], segs[i+1]))
             # and insert gaps if necessary (this results in an iteration of the loop fizzling, as the next i will be this blank, which won't need another blank added.)
             elif segs[i]['start'] + segs[i]['thing'].nlights < segs[i + 1]['start']:
@@ -159,22 +167,36 @@ class Model2(MoreAbstractModel): # new model supports multiple strands (and uses
                     "scale": (1, 0)
                 })
 
-    def _insert_segment(self, seg):
-        if seg['strand'] not in self.segments_by_strand:
-            self.segments_by_strand[seg['strand']] = []
-            if seg['start'] != 0:
-                self.segments_by_strand[seg['strand']].append({
+    def _insert_segment(self, segment):
+    # to insert a segment, it must overlap a blank space, and thing must already be filled out
+        if segment['strand'] not in self.segments_by_strand:
+            self.segments_by_strand[segment['strand']] = []
+            if segment['start'] != 0:
+                self.segments_by_strand[segment['strand']].append({
                     "start": 0,
-                    "thing": Blank(seg['start']),
+                    "thing": Blank(segment['start']),
                     "color": (0, 0, 0),
                     "scale": (1, 0)
                 })
-        segs = self.segments_by_strand[seg['strand']]
+        segs = self.segments_by_strand[segment['strand']]
+        # If we are completely surrounded by a blank, remove it
+        to_remove = None
+        start = segment['start']
+        end = segment['start'] + self.find(segment['key']).nlights
+        for i, iseg in enumerate(segs):
+            if isinstance(iseg['thing'], Blank):
+                istart = iseg['start']
+                iend = iseg['start'] + iseg['thing'].nlights
+                if istart <= start and iend >= end:
+                    to_remove = i
+                    break
+        if to_remove is not None:
+            del segs[to_remove]
         segs.append({
-            "start": seg['start'],
-            "thing": self.find(seg['key']),
-            "color": seg['color'],
-            "scale": (seg['scale'][0], seg['scale'][1])})
+            "start": segment['start'],
+            "thing": self.find(segment['key']),
+            "color": segment['color'],
+            "scale": (segment['scale'][0], segment['scale'][1])})
         self._fix_segments(segs)
 
     def add(self, segment, **kwargs): 
@@ -190,15 +212,37 @@ class Model2(MoreAbstractModel): # new model supports multiple strands (and uses
         return (k, n)
 
     def connect(self, segment, prekey, postkey, **kwargs):
+        # segment is the same as for Model2 params, 
+        # but key will be ignored (the new neuron key will be returned)
+        # and scale may be omitted (and the default will be used)
         k, s = super().connect(prekey, postkey, **kwargs)
-        # TODO
+        seg['key'] = k
+        if 'scale' not in seg:
+            seg['scale'] = self.default_scale
+        self._insert_segment(segment)
+        return (k, s)
 
-    def generate_colors(self, strand): # yields a color generator. I don't reccomend keeping these around if you got it before a call to step() or modifying the network
+    def generate_colors(self, strand): # yields a color generator. 
+        # I don't reccomend keeping these around across calls to step() or add() or connect()
         segs = self.segments_by_strand[strand]
         yield from itertools.chain(*[
             (color_mult(val * seg['scale'][0] + seg['scale'][1], seg['color']) for val in seg['thing'].generate_vals()) 
             for seg in self.segments_by_strand[strand]
         ])
+
+    def generate_segments(self, typ=None): 
+        # generate segment descriptors for segments that are of type typ.
+        # if typ is none, generate all segments
+        for strand, segs in self.segments_by_strand.items():
+            for seg in segs:
+                if typ is None or isinstance(seg['thing'], typ):
+                    yield {
+                        "strand": strand,
+                        "start": seg['start'],
+                        "key": self.unfind(seg['thing']),
+                        "color": seg['color'],
+                        "scale": list(seg['scale'])
+                    }
 
     def generate_colors_by_strand(self):
         return {
@@ -207,13 +251,6 @@ class Model2(MoreAbstractModel): # new model supports multiple strands (and uses
         }
     
             
-def color_mult(val, color):
-    R, G, B = color
-    R *= val
-    G *= val
-    B *= val
-    return (R, G, B)
-
 # XXX No idea if this works anymore. 
 # I tried to keep it sane but it hasn't been tested since half of it got vivisected into MoreAbstractModel
 class Model(MoreAbstractModel): # old model serializes to a single strand
@@ -296,7 +333,7 @@ class Model(MoreAbstractModel): # old model serializes to a single strand
                     self._neurons[k].blank(self.buf)
                 elif k in self._synapses:
                     self._synapses[k][0].blank(self.buf)
-        self.buf.flush()
+        self.buf.flush(),
         self.buf.truncate()
         self.buf.seek(0)
 

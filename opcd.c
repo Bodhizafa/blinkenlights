@@ -513,9 +513,8 @@ static void alloc_cb(uv_handle_t* handle,
     buf->len = suggested_size;
 }
 
-
 static void on_connection(uv_stream_t* server, int status) {
-	printf("Got a connection");
+	printf("Client connected\n");
 	uv_tcp_t* stream;
 	int r;
     struct opc_uv_data* uv_data = calloc(sizeof(*uv_data), 1);

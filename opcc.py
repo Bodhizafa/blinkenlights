@@ -20,7 +20,7 @@ parser.add_argument("--histfile", type=str, help="History file", default=".opcc_
 parser.add_argument("--nlights", type=int, default=300, help="Number of LEDs per channel")
 parser.add_argument("--port", type=int, default=42024)
 parser.add_argument("--network", default="network.json", type=str, help="Network to load into the synaq")
-parser.add_argument("--steps", default=50, type=str, help="number of model steps per visible frame")
+parser.add_argument("--steps", default=50, type=str, help="Number of model steps per visible frame")
 
 def clamp(val):
     return int(max(min(val, 255), 0))
@@ -55,11 +55,13 @@ class opc_client(object):
                                  itertools.islice(itertools.repeat((0,0,0)), self.nlights - (start + nlights)))
         self.send_leds(strand, colors)
 
+    def clear(self):
+        self.send(0, 0, bytearray(itertools.islice(itertools.repeat(0), self.nlights)))
+
     def send_leds(self, strand, colors): # colors is an iterable of (R, G, B) tuples, range 0-1
         channel = strand + 1
-        colors = list(colors)
         color_bytes = bytearray((clamp(int(component * 255)) for color in colors for component in color))
-        body = struct.pack("%ds" % min(len(color_bytes), self.nlights), color_bytes)
+        body = struct.pack("%ds" % min(len(color_bytes), self.nlights * 3), color_bytes)
         self.send(channel, 0, body)
 
     def test(self):
@@ -82,13 +84,14 @@ if __name__ == "__main__":
     host = gargs.host
     port = gargs.port
     opcc = opc_client(host, port, gargs.nlights)
+    opcc.clear()
     try:
         with open(gargs.network) as network:
             try:
                 params = json.load(network)
             except ValueError:
-                print("Network was unparseable. Starting anew.")
                 traceback.print_exc()
+                print("Network was unparseable. Starting anew.")
                 params = {"dT": 0.0001}
     except IOError:
         print("Network doesn't exist. starting anew.")
@@ -110,6 +113,7 @@ if __name__ == "__main__":
             elif raw == "h": # help
                 print("""
                 [h] Help
+                [c] clear the lights
                 [m] measure
                 [f] flash all lights
                 [s] save the network (to the file given by --network, default network.json
@@ -117,10 +121,27 @@ if __name__ == "__main__":
                 [p] print model state to stdout
                 [n] step the model by dT
                 [nd][dn] step and display
+                [r] run the model
                 [N] create a soma on the current measured strip
                 [S] create a synapse on the current measured strip
-                [r] run the model
+                [C] change neuron/synapse parameters
                 """)
+            elif raw == "C":
+                with cbreak_termina():
+                    print("[j][k] select segment")
+                    segs = list(model.generate_segs())
+                    i = 0
+                    while c not in ("\x1b", "\n"):
+                        if c == "j":
+                            i = max(i - 1, 0)
+                        elif c == "k":
+                            i = min(i + 1, len(segs) - 1)
+                        seg = segs[i]
+                        opcc.highlight(seg['strand'], seg['start'], model.find(seg['key']).nlights, (0, 0, 0.5))
+                        c = sys.stdin.read(1)
+                
+            elif raw == "c":
+                opcc.clear()
             elif raw == "r":
                 print("Running. Ctrl-C to stop")
                 try:
@@ -139,7 +160,7 @@ if __name__ == "__main__":
                         opcc.send_leds(strand, colors)
             elif raw == "s": # Save
                 with open(gargs.network, "w") as network:
-                    json.dump(model.params(), network)
+                    json.dump(model.params(), network, indent=4)
                 print("Saved to %s" % gargs.network)
             elif raw == "N": # New Neuron
                 k, n = model.add({
@@ -160,6 +181,10 @@ if __name__ == "__main__":
                     i = 0
                     # Select presynaptic neuron
                     print("Select presynaptic neuron [j][k] prev/next")
+                    opcc.highlight(neuron_segs[0]['strand'], 
+                                   neuron_segs[0]['start'], 
+                                   model.find(neuron_segs[0]['key']).nlights, 
+                                   (0, 0, 0.5))
                     while c not in ("\x1b", "\n"):
                         c = sys.stdin.read(1)
                         if c == "j":
@@ -178,7 +203,11 @@ if __name__ == "__main__":
                         print("Presynaptic: %s" % preseg['key'])
                     # Select postsynaptic neuron
                     print("Select postsynaptic neuron [j][k] prev/next")
-                    c = sys.stdin.read(1)
+                    opcc.highlight(neuron_segs[i]['strand'], 
+                                   neuron_segs[i]['start'], 
+                                   model.find(neuron_segs[i]['key']).nlights, 
+                                   (0.5, 0, 0))
+                    c = None
                     while c not in ("\x1b", "\n"):
                         c = sys.stdin.read(1)
                         if c == "j":
@@ -199,7 +228,7 @@ if __name__ == "__main__":
                     rev = False
                     print("[r] reverse neuron (they go blue->red)")
                     opcc.highlight(mstrand, mstart, mend - mstart, (0, 0, 0.5), (0.5, 0, 0))
-                    c = sys.stdin.read(1)
+                    c = None
                     while c not in ("\x1b", "\n"):
                         c = sys.stdin.read(1)
                         if c == "r":
@@ -240,7 +269,7 @@ if __name__ == "__main__":
                 with cbreak_terminal():
                     c = None
                     while c not in ('\x1b', '\n'): # escape, enter
-                        sys.stdout.write("\r\033[Kstrand: %d %d:%d %s" % (mstrand, mstart, mend, mcolor))
+                        sys.stdout.write("\r\033[Kstrand:%d\tsegment:%d:%d\tcolor: %s" % (mstrand, mstart, mend, mcolor))
                         opcc.highlight(mstrand, mstart, mend - mstart, mcolor)
                         c = sys.stdin.read(1)
                         if c == "p" or c == "i":
@@ -270,7 +299,7 @@ if __name__ == "__main__":
                             elif c == 'e':
                                 mb = min(mb + .125, 1)
                             elif c == 'd':
-                                mb = min(mb - .125, 0)
+                                mb = max(mb - .125, 0)
                             mcolor = (mr, mg, mb)
                 sys.stdout.write("\n")
             else:

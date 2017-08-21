@@ -140,13 +140,22 @@ class Model2(MoreAbstractModel): # What Single Responsibility Principle?
         params.update({
             "segments": [seg for seg in self.generate_segments() 
                             if (seg['key'] in self._synapses
-                                or self['key'] in self._neurons)] # we don't care about blanks
+                                or seg['key'] in self._neurons)] # we don't care about blanks
         })
         return params
 
     @staticmethod
     def _fix_segments(segs): # mutates segs such that they're contiguous (inserting blanks as necessary) and checks for overlaps
         segs.sort(key=lambda seg: seg['start'])
+        newsegs = []
+        if segs[0]['start'] != 0:
+            newsegs.append({
+                "start": 0,
+                "thing": Blank(segs[0]['start']),
+                "color": (0, 0, 0),
+                "scale": (1, 0)
+            })
+
         for i in range(len(segs) - 1):
             seg = segs[i]
             nseg = segs[i + 1]
@@ -155,29 +164,25 @@ class Model2(MoreAbstractModel): # What Single Responsibility Principle?
             nsegstart = nseg['start']
             nsegend = nseg['start'] + nseg['thing'].nlights
             # ensure there's no overlaps
-            if segs[i]['start'] + segs[i]['thing'].nlights >= segs[i + 1]['start']:
+            if segstart >= nsegstart:
                 raise WhatTheFuck("Overlapping segments: %r %r" % (segs[i], segs[i+1]))
             # and insert gaps if necessary (this results in an iteration of the loop fizzling, as the next i will be this blank, which won't need another blank added.)
-            elif segs[i]['start'] + segs[i]['thing'].nlights < segs[i + 1]['start']:
+            elif segend < nsegstart:
                 nextseg = segs[i+1]
-                segs.insert(i+1, {
+                newsegs.append({
                     "start": segend,
-                    "thing": Blank(nextseg['start'] - segend),
+                    "thing": Blank(nsegstart - segend),
                     "color": (0, 0, 0),
                     "scale": (1, 0)
                 })
+        # this is inefficient, we could insert them at the right place, buuuut....
+        segs.extend(newsegs)
+        segs.sort(key=lambda seg: seg['start'])
 
     def _insert_segment(self, segment):
     # to insert a segment, it must overlap a blank space, and thing must already be filled out
         if segment['strand'] not in self.segments_by_strand:
             self.segments_by_strand[segment['strand']] = []
-            if segment['start'] != 0:
-                self.segments_by_strand[segment['strand']].append({
-                    "start": 0,
-                    "thing": Blank(segment['start']),
-                    "color": (0, 0, 0),
-                    "scale": (1, 0)
-                })
         segs = self.segments_by_strand[segment['strand']]
         # If we are completely surrounded by a blank, remove it
         to_remove = None
@@ -212,30 +217,30 @@ class Model2(MoreAbstractModel): # What Single Responsibility Principle?
         return (k, n)
 
     def connect(self, segment, prekey, postkey, **kwargs):
-        # segment is the same as for Model2 params, 
+        # seg is the same as for Model2 params, 
         # but key will be ignored (the new neuron key will be returned)
         # and scale may be omitted (and the default will be used)
         k, s = super().connect(prekey, postkey, **kwargs)
+        seg = segment.copy()
         seg['key'] = k
         if 'scale' not in seg:
             seg['scale'] = self.default_scale
-        self._insert_segment(segment)
+        self._insert_segment(seg)
         return (k, s)
 
     def generate_colors(self, strand): # yields a color generator. 
         # I don't reccomend keeping these around across calls to step() or add() or connect()
         segs = self.segments_by_strand[strand]
-        yield from itertools.chain(*[
-            (color_mult(val * seg['scale'][0] + seg['scale'][1], seg['color']) for val in seg['thing'].generate_vals()) 
-            for seg in self.segments_by_strand[strand]
-        ])
+        for seg in segs:
+            for val in seg['thing'].generate_vals():
+                yield color_mult(val * seg['scale'][0] + seg['scale'][1], seg['color'])
 
     def generate_segments(self, typ=None): 
         # generate segment descriptors for segments that are of type typ.
         # if typ is none, generate all segments
         for strand, segs in self.segments_by_strand.items():
             for seg in segs:
-                if typ is None or isinstance(seg['thing'], typ):
+                if (typ is None or isinstance(seg['thing'], typ)) and not isinstance(seg['thing'], Blank):
                     yield {
                         "strand": strand,
                         "start": seg['start'],
@@ -249,7 +254,6 @@ class Model2(MoreAbstractModel): # What Single Responsibility Principle?
             strand: self.generate_colors(strand)
                 for strand in self.segments_by_strand.keys()
         }
-    
             
 # XXX No idea if this works anymore. 
 # I tried to keep it sane but it hasn't been tested since half of it got vivisected into MoreAbstractModel
@@ -358,27 +362,29 @@ class Synapse(object):
         self._length = length
         self._reverse = reverse
         self.nlights = nlights or length
-        self._values = collections.deque([0 for _ in range(self.nlights)]) 
-        self._frame = 0
+        self._values = collections.deque([0 for _ in range(self._length)]) 
 
     def step(self):
-        if not self._frame % (self._length // self.nlights):
-            self._values.popleft()
-            self._values.append(self.pre.V)
-        self._frame += 1
+        self._values.appendleft(self.pre.V)
+        self._values.pop()
+
     def output(self):
         "Effect on postsynaptic current"
         return self._values[0] * self._weight
+
     def params(self):
         return {"weight": self._weight,
                 "reverse": self._reverse,
                 "nlights": self.nlights,
-                "length": self._length,}
+                "length": self._length}
     def generate_vals(self):
+        #print(self._values)
+        vlen = len(self._values)
         if self._reverse:
-            yield from reversed(self._values)
+            pass # TODO
+            # yield from (self._values[vlen - (n ) for n in range(nlights))
         else:
-            yield from self._values
+            yield from (self._values[int((float(n) / self.nlights) * vlen)] for n in range(self.nlights))
     def lights(self):
         if self._reverse:
             return [clamp(v)for v in reversed(self._values)]

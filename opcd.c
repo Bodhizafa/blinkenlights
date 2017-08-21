@@ -209,7 +209,7 @@ bool init() {
 		prus[i].fblen = msg.len;
 		// Map the memory
 		prus[i].fb = mmap(NULL, prus[i].fblen, PROT_READ | PROT_WRITE, 
-			              MAP_SHARED | MAP_LOCKED	, devmem_fd, msg.pa); 
+			              MAP_SHARED | MAP_LOCKED, devmem_fd, msg.pa); 
 		if (prus[i].fb == MAP_FAILED) {
 			printf("PRU %d ", i);
 			perror("mmap failed");
@@ -241,27 +241,6 @@ static uint64_t data_cntr = 0;
 static void on_close(uv_handle_t* handle) {
 	free(handle);
 }
-
-
-static void after_write(uv_write_t* req, int status) {
-	write_req_t* wr = (write_req_t*)req;
-
-	if (wr->buf.base != NULL)
-		free(wr->buf.base);
-	free(wr);
-
-	if (status == 0)
-		return;
-
-	fprintf(stderr, "uv_write error: %s\n", uv_strerror(status));
-
-	if (status == UV_ECANCELED)
-		return;
-
-	assert(status == UV_EPIPE);
-	uv_close((uv_handle_t*)req->handle, on_close);
-}
-
 
 static void after_shutdown(uv_shutdown_t* req, int status) {
 	/*assert(status == 0);*/
@@ -322,12 +301,19 @@ void print_regbuf(uint16_t* regs, uint16_t nregs) {
     }
 }
 // OPC is stateless and pragmatically a bit dumpster, so we don't get a client reference
-void after_opc_packet(struct opc_pkt* p) { 
+void after_opc_packet(struct opc_pkt* p) {
 	//fprintf(stderr, "Complete packet recieved chan: %hhu command: %hhu len: %hu\n", 
     //        p->hdr.channel, p->hdr.command, p->hdr.body_len);
     switch(p->hdr.command) {
     case OPC_PIXEL_DATA:
-        assert(p->hdr.body_len <= (STRAND_LEN * 3));
+        if (p->hdr.body_len > (STRAND_LEN * 3)) {
+            fprintf(stderr, 
+                    "Packet too long on channel %hhu command %hhu, %hu bytes\n", 
+                    p->hdr.channel,
+                    p->hdr.command, 
+                    p->hdr.body_len);
+            assert(false);
+        }
         int startch, endch;
         if (p->hdr.channel == 0) {
             startch = 0;
@@ -346,8 +332,8 @@ void after_opc_packet(struct opc_pkt* p) {
     case OPC_TEST:
         printf("Testing PRU 0\n");
         fflush(stdout);
+        uv_mutex_lock(&pru_lock);
         for (int i = 0; i < 64; i++) {
-            uv_mutex_lock(&pru_lock);
             for (int ch = 0; ch < 16; ch++) {
                 for (int led = 0; led < STRAND_LEN; led++) {
                     prus[0].rgb_fb[ch][led].r = i;
@@ -359,7 +345,6 @@ void after_opc_packet(struct opc_pkt* p) {
             //uint16_t nregs = translate_colors(regbuf, prus[0].rgb_fb, 10);
             //print_regbuf(regbuf, nregs);
             // display_thread does the actual displaying
-            uv_mutex_unlock(&pru_lock);
             usleep(1000*25);
         }
         for (int ch = 0; ch < 16; ch++) {
@@ -369,13 +354,13 @@ void after_opc_packet(struct opc_pkt* p) {
                 prus[0].rgb_fb[ch][led].b = 0;
             }
         }
+        uv_mutex_unlock(&pru_lock);
         break;
     case OPC_SYSEX:
         // what?
         break;
     }
 
-    //printf("Done\n");
     fflush(stdout);
     free(p);
 };
@@ -384,11 +369,13 @@ static void after_read(uv_stream_t* client,
 					   ssize_t nread,
 					   const uv_buf_t* uv_buf) {
     //printf("Got %d bytes.\n", nread);
+    ssize_t original_nread = nread;
     fflush(stdout);
+    struct opc_uv_data* uv_data = (struct opc_uv_data*)client->data;
+    uv_mutex_lock(&(uv_data->lock));
+    char* buf = uv_buf->base;
+    int iters = 0;
 	if (nread > 0) {
-		struct opc_uv_data* uv_data = (struct opc_uv_data*)client->data;
-		uv_mutex_lock(&(uv_data->lock));
-		char* buf = uv_buf->base;
 		while (nread > 0) {
 			switch (uv_data->pkt_state) {
                 case INIT:
@@ -398,6 +385,7 @@ static void after_read(uv_stream_t* client,
 						uv_data->pkt_state = PARTIAL_HDR;
 						memcpy(uv_data->pkt, buf, nread);
 						uv_data->pkt_sofar = nread;
+                        buf += nread;
 						nread = 0;
 						break;
 						// done
@@ -415,6 +403,7 @@ static void after_read(uv_stream_t* client,
 						// header is still partial
 						memcpy(uv_data->pkt_ptr + uv_data->pkt_sofar, buf, nread);
 						uv_data->pkt_sofar += nread;
+                        buf += nread;
 						nread = 0;
 						break;
 						// done
@@ -430,12 +419,11 @@ static void after_read(uv_stream_t* client,
 					}
                 completed_hdr:
 				case COMPLETED_HDR:
+					uv_data->pkt->hdr.body_len = ntohs(uv_data->pkt->hdr.body_len);
 					uv_data->pkt = realloc(uv_data->pkt, uv_data->pkt->hdr.body_len + sizeof(uv_data->pkt->hdr));
 					uv_data->pkt_state = ALLOCATED;
-					uv_data->pkt->hdr.body_len = ntohs(uv_data->pkt->hdr.body_len);
 					// fallthrough
-				case ALLOCATED:
-					;
+				case ALLOCATED:;
 					size_t to_copy;
 					if (nread + uv_data->pkt_sofar >= (sizeof(uv_data->pkt->hdr) + uv_data->pkt->hdr.body_len)) { // we got the end of the packet
 						uv_data->pkt_state = COMPLETED;
@@ -449,14 +437,13 @@ static void after_read(uv_stream_t* client,
 					nread -= to_copy;
 					buf += to_copy;
 			}
+            assert(buf <= uv_buf->base + original_nread);
             if (uv_data->pkt_state == COMPLETED) {
                 struct opc_pkt* pkt = uv_data->pkt;
                 uv_data->pkt = NULL;
                 uv_data->pkt_state = INIT;
-                uv_mutex_unlock(&(uv_data->lock));
+                uv_data->pkt_sofar = 0;
                 after_opc_packet(pkt); // after_opc_packet owns this memory now.
-            } else {
-                uv_mutex_unlock(&(uv_data->lock));
             }
 		}
 	} else if (nread < 0) {
@@ -467,6 +454,7 @@ static void after_read(uv_stream_t* client,
 		}
 		uv_close((uv_handle_t*)client, on_close);
 	}
+    uv_mutex_unlock(&(uv_data->lock));
 	free(uv_buf->base);
 	/*
 	   int r;
@@ -513,9 +501,8 @@ static void alloc_cb(uv_handle_t* handle,
     buf->len = suggested_size;
 }
 
-
 static void on_connection(uv_stream_t* server, int status) {
-	printf("Got a connection");
+	printf("Client connected\n");
 	uv_tcp_t* stream;
 	int r;
     struct opc_uv_data* uv_data = calloc(sizeof(*uv_data), 1);

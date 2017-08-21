@@ -20,8 +20,7 @@
 #define OPC_TEST 254
 #define OPC_SYSEX 255
 
-
-#define STRAND_LEN 600
+#define STRAND_LEN 300
 #define PORT 42024
 #define NUM_PRUS 2
 
@@ -324,8 +323,8 @@ void print_regbuf(uint16_t* regs, uint16_t nregs) {
 }
 // OPC is stateless and pragmatically a bit dumpster, so we don't get a client reference
 void after_opc_packet(struct opc_pkt* p) { 
-	fprintf(stderr, "Complete packet recieved chan: %hhu command: %hhu len: %hu\n", 
-            p->hdr.channel, p->hdr.command, p->hdr.body_len);
+	//fprintf(stderr, "Complete packet recieved chan: %hhu command: %hhu len: %hu\n", 
+    //        p->hdr.channel, p->hdr.command, p->hdr.body_len);
     switch(p->hdr.command) {
     case OPC_PIXEL_DATA:
         assert(p->hdr.body_len <= (STRAND_LEN * 3));
@@ -376,7 +375,7 @@ void after_opc_packet(struct opc_pkt* p) {
         break;
     }
 
-    printf("Done\n");
+    //printf("Done\n");
     fflush(stdout);
     free(p);
 };
@@ -384,7 +383,7 @@ void after_opc_packet(struct opc_pkt* p) {
 static void after_read(uv_stream_t* client,
 					   ssize_t nread,
 					   const uv_buf_t* uv_buf) {
-	printf("Got %d bytes.\n", nread);
+    //printf("Got %d bytes.\n", nread);
     fflush(stdout);
 	if (nread > 0) {
 		struct opc_uv_data* uv_data = (struct opc_uv_data*)client->data;

@@ -13,6 +13,8 @@ firmware: build/am335x-pru0-fw build/am335x-pru1-fw
 install: build/am335x-pru0-fw build/am335x-pru1-fw build/opcd
 	cp build/am335x-pru0-fw /lib/firmware/am335x-pru0-fw
 	cp build/am335x-pru1-fw /lib/firmware/am335x-pru1-fw
+	cp build/opcd /root/opcd
+cp build/
 	$(MAKE) restartpru
 
 magic: install

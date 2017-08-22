@@ -133,12 +133,22 @@ void display_thread_main(void* arg) {
         uint16_t nregs = translate_colors(prus[0].fb, prus[0].rgb_fb, STRAND_LEN);
         memcpy(buf + 1, &nregs, sizeof(nregs));
         write_buf(prus[0].msg_fd, buf, 3);
-        //write_buf(prus[0].msg_fd, "d\0\0", 3);
         uint16_t nregs_displayed;
         read_buf(prus[0].msg_fd, &nregs_displayed, 2);
+        //printf("PRU0 translated %hu regs, displayed %hu\n", nregs, nregs_displayed);
+
+        char buf2[3]; // byte 0 is 'd', the other 2 are the number of regs
+        buf2[0] = 'd'; // display message
+        uint16_t nregs2 = translate_colors(prus[1].fb, prus[1].rgb_fb, STRAND_LEN);
+        memcpy(buf2 + 1, &nregs2, sizeof(nregs2));
+        write_buf(prus[1].msg_fd, buf2, 3);
+        fflush(stdout);
+        uint16_t nregs_displayed2;
+        read_buf(prus[1].msg_fd, &nregs_displayed2, 2);
+        //printf("PRU1 translated %hu regs, displayed %hu\n", nregs2, nregs_displayed2);
+
         uv_mutex_unlock(&pru_lock);
         //usleep(1000 * 10); 
-        //printf("translated %hu regs, displayed %hu\n", nregs, nregs_displayed);
     }
 }
 
@@ -155,33 +165,33 @@ bool init() {
 		return false;
 	}
 	printf("Opened bind/unbind FDs\n");
-	if (!write_str(unbind_fd, "4a334000.pru0")) {
-		perror("Failed to unbind PRU0");
-	}
 	if (!write_str(unbind_fd, "4a338000.pru1")) {
 		perror("Failed to unbind PRU1");
 	}
+	if (!write_str(unbind_fd, "4a334000.pru0")) {
+		perror("Failed to unbind PRU0");
+	}
 	printf("Stopped PRUs\n");
 	close(unbind_fd);
-	if (!write_str(bind_fd, "4a334000.pru0\n")) {
-		perror("Failed to bind PRU0");
-		return false;
-	}
 	if (!write_str(bind_fd, "4a338000.pru1\n")) {
 		perror("Failed to bind PRU1");
+		return false;
+	}
+	if (!write_str(bind_fd, "4a334000.pru0\n")) {
+		perror("Failed to bind PRU0");
 		return false;
 	}
 	printf("Started PRUs\n");
 	close(bind_fd);
 	// Open the PRU MSG FDs
-	prus[0].msg_fd = open("/dev/rpmsg_pru30", O_RDWR);
-	if (prus[0].msg_fd < 0) {
-		perror("Opening PRU0");
-		return false;
-	}
 	prus[1].msg_fd = open("/dev/rpmsg_pru31", O_RDWR);
 	if (prus[1].msg_fd < 0) {
 		perror("Opening PRU1");
+		return false;
+	}
+	prus[0].msg_fd = open("/dev/rpmsg_pru30", O_RDWR);
+	if (prus[0].msg_fd < 0) {
+		perror("Opening PRU0");
 		return false;
 	}
 	printf("Opened MSG FDs\n");
@@ -214,7 +224,7 @@ bool init() {
 			perror("mmap failed");
 			return false;
 		}
-        *prus[i].fb = 9;
+        //*prus[i].fb = 9;
 		printf("PRU %d FD %d Address 0x%x => %p len 0x%x\n", 
 				i, prus[i].msg_fd, msg.pa, prus[i].fb, prus[i].fblen);
 
@@ -313,7 +323,7 @@ void after_opc_packet(struct opc_pkt* p) {
         // TODO this
         break;
     case OPC_TEST:
-        printf("Testing PRU 0\n");
+        printf("Testing PRUs\n");
         fflush(stdout);
         for (int i = 0; i < 64; i++) {
             uv_mutex_lock(&pru_lock);
@@ -322,6 +332,9 @@ void after_opc_packet(struct opc_pkt* p) {
                     prus[0].rgb_fb[ch][led].r = i;
                     prus[0].rgb_fb[ch][led].g = i;
                     prus[0].rgb_fb[ch][led].b = i;
+                    prus[1].rgb_fb[ch][led].r = i;
+                    prus[1].rgb_fb[ch][led].g = i;
+                    prus[1].rgb_fb[ch][led].b = i;
                 }
             }
             //uint16_t* regbuf = calloc(sizeof(*regbuf), 500);
@@ -337,6 +350,9 @@ void after_opc_packet(struct opc_pkt* p) {
                 prus[0].rgb_fb[ch][led].r = 0;
                 prus[0].rgb_fb[ch][led].g = 0;
                 prus[0].rgb_fb[ch][led].b = 0;
+                prus[1].rgb_fb[ch][led].r = 0;
+                prus[1].rgb_fb[ch][led].g = 0;
+                prus[1].rgb_fb[ch][led].b = 0;
             }
         }
         uv_mutex_unlock(&pru_lock);

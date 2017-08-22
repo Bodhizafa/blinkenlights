@@ -16,7 +16,6 @@ import jps
 from pprint import pprint
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--host", type=str, default=argparse.SUPPRESS, help="OPC host?")
 parser.add_argument("--pru", type=int, default=argparse.SUPPRESS, choices=[0,1], help="Which PRU?")
 parser.add_argument("--len", type=int, default=25, help="Length of the longest strand")
 parser.add_argument("--histfile", type=str, default=".fuck_history", help="History file")
@@ -141,7 +140,6 @@ class PRU(Output):
         with self.lock:
             self.send("c", "p".encode('ascii'))
             print(self.recv("c"))
-
 
 # color-friendly operators. Should all take either an RGB tuple or a value and return the same.
 # All tuple members and values should come in between 0 and 1 and be returned the same
@@ -344,6 +342,7 @@ def display_thread_main(pru): # Ghetto ass shit because I can't figure out why t
 if __name__ == "__main__":
     gargs = parser.parse_args()
     if hasattr(gargs, 'pru'):
+        print("PRU %d" % gargs.pru)
         pru = PRU(gargs.pru, gargs.len)
     else:
         pass

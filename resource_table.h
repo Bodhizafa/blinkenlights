@@ -31,8 +31,8 @@
 #define CTRL_REG			PRU0_CTRL
 #elif PRU_NO == 1
 #define CTRL_REG			PRU1_CTRL
-
 #endif
+
 // MAGIC
 #define VIRTIO_RPMSG_F_NS	0
 #define VIRTIO_CONFIG_S_DRIVER_OK	4

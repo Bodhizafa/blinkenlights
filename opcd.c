@@ -120,13 +120,11 @@ uint16_t translate_colors(uint16_t* dst_regs, struct color* src_rgbs[16], size_t
             dst_regs[nregs] = reg;
             nregs += 1;
         }
-        // TODO copy and paste the above for B and G
     }
     return nregs;
 }
 
 void display_thread_main(void* arg) {
-    return; // XXX REMOVE THIS
     printf("Starting display thread\n");
     while (true) {
         uv_mutex_lock(&pru_lock);
@@ -428,7 +426,9 @@ static void after_read(uv_stream_t* client,
             if (data->data_ctr == data->pkt->hdr.body_len + sizeof(data->pkt->hdr)) {
                 //printf("Got a whole packet, chan %d, command %d, %d bytes in body\n", 
                        //data->pkt->hdr.channel, data->pkt->hdr.command, data->pkt->hdr.body_len);
-                fflush(stdout);
+                
+                //fflush(stdout);
+                after_opc_packet(data->pkt);
                 memset(data, 0, sizeof(*data));
             }
             nassembled += na;
@@ -506,13 +506,10 @@ static int tcp_echo_server() {
 
 int main() {
 	printf("Starting\n");
-    /*
-    XXX UNCOMMENT THIS
 	if (!init()) {
 		printf("Failed to start PRUs. Reinstall firmware?\n");
 		return 1;
 	}
-    */
 	printf("PRUs initialized\n");
 	int r;
 

@@ -307,17 +307,28 @@ void after_opc_packet(struct opc_pkt* p) {
                     p->hdr.body_len);
             assert(false);
         }
+        if (p->hdr.channel > 32) {
+
+            fprintf(stderr, "Recieved message for nonexistant channel %hu\n");
+            free(p);
+            return;
+        }
         int startch, endch;
         if (p->hdr.channel == 0) {
             startch = 0;
-            endch = 16; // half open range
+            endch = 32; // half open range
         } else {
             startch = p->hdr.channel - 1;
             endch = p->hdr.channel;
         }
+        // at this point ch is zero indexed
         uv_mutex_lock(&pru_lock);
         for (int ch = startch; ch < endch; ch++) {
-            memcpy(prus[0].rgb_fb[ch], p->body, p->hdr.body_len);
+            if (ch <= 15) {
+                memcpy(prus[0].rgb_fb[ch], p->body, p->hdr.body_len);
+            } else {
+                memcpy(prus[1].rgb_fb[ch - 16], p->body, p->hdr.body_len);
+            }
         }
         uv_mutex_unlock(&pru_lock);
         // TODO this

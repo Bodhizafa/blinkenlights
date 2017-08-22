@@ -154,7 +154,7 @@ bool init() {
 		perror("Opening bind");
 		return false;
 	}
-	//printf("Opened bind/unbind FDs\n");
+	printf("Opened bind/unbind FDs\n");
 	if (!write_str(unbind_fd, "4a334000.pru0")) {
 		perror("Failed to unbind PRU0");
 	}
@@ -315,8 +315,8 @@ void after_opc_packet(struct opc_pkt* p) {
     case OPC_TEST:
         printf("Testing PRU 0\n");
         fflush(stdout);
-        uv_mutex_lock(&pru_lock);
         for (int i = 0; i < 64; i++) {
+            uv_mutex_lock(&pru_lock);
             for (int ch = 0; ch < 16; ch++) {
                 for (int led = 0; led < STRAND_LEN; led++) {
                     prus[0].rgb_fb[ch][led].r = i;
@@ -329,7 +329,9 @@ void after_opc_packet(struct opc_pkt* p) {
             //print_regbuf(regbuf, nregs);
             // display_thread does the actual displaying
             usleep(1000*25);
+            uv_mutex_unlock(&pru_lock);
         }
+        uv_mutex_lock(&pru_lock);
         for (int ch = 0; ch < 16; ch++) {
             for (int led = 0; led < STRAND_LEN; led++) {
                 prus[0].rgb_fb[ch][led].r = 0;

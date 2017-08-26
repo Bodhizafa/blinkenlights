@@ -168,7 +168,7 @@ class Model2(MoreAbstractModel): # What Single Responsibility Principle?
                 raise WhatTheFuck("Overlapping segments: %r %r" % (segs[i], segs[i+1]))
             # and insert gaps if necessary (this results in an iteration of the loop fizzling, as the next i will be this blank, which won't need another blank added.)
             elif segend < nsegstart:
-                nextseg = segs[i+1]
+                nextseg = segs[i + 1]
                 newsegs.append({
                     "start": segend,
                     "thing": Blank(nsegstart - segend),

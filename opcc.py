@@ -2,6 +2,7 @@
 # (c) 2017 Landon Meernik
 # vim: set fileencoding=utf8
 
+import random
 import argparse
 import tty
 import termios
@@ -12,6 +13,8 @@ import struct
 import itertools
 import json
 import traceback
+import ast
+import time
 from Neuron import Model2, Neuron, Synapse
 
 parser = argparse.ArgumentParser()
@@ -21,6 +24,7 @@ parser.add_argument("--nlights", type=int, default=300, help="Number of LEDs per
 parser.add_argument("--port", type=int, default=42024)
 parser.add_argument("--network", default="network.json", type=str, help="Network to load into the synaq")
 parser.add_argument("--steps", default=50, type=str, help="Number of model steps per visible frame")
+parser.add_argument("--fuzz", action="store_true")
 
 def clamp(val):
     return int(max(min(val, 255), 0))
@@ -58,14 +62,35 @@ class opc_client(object):
     def clear(self):
         self.send(0, 0, bytearray(itertools.islice(itertools.repeat(0), self.nlights)))
 
-    def send_leds(self, strand, colors): # colors is an iterable of (R, G, B) tuples, range 0-1
+    def send_leds(self, strand, colors, **kwargs): # colors is an iterable of (R, G, B) tuples, range 0-1
         channel = strand + 1
         color_bytes = bytearray((clamp(int(component * 255)) for color in colors for component in color))
         body = struct.pack("%ds" % min(len(color_bytes), self.nlights * 3), color_bytes)
-        self.send(channel, 0, body)
+        self.send(channel, 0, body, **kwargs)
 
     def test(self):
         self.send(0, 254, b'')
+
+class opc_segment_fuzzer(opc_client):
+    def send(self, channel, command, body, fenceposts=None):
+        blen = len(body)
+        packet = struct.pack(">BBH%ds" % blen, channel, command, blen, body)
+        if fenceposts is None:
+            fenceposts = [0] + \
+                         list(random.sample(set(filter(lambda f: f < len(packet), [1,2,3,4,5,6,10,100,1000])), 
+                                             random.choice([0, 1, 2, 3]))) + \
+                         [len(packet)]
+            fenceposts.sort()
+        else:
+            fenceposts = [0] + \
+                         fenceposts + \
+                         [len(packet)]
+            fenceposts.sort()
+        #print("Packet fenceposts: %r" % fenceposts)
+        for i, post in enumerate(fenceposts[:-1]):
+            npost = fenceposts[i+1]
+            self.socket.send(packet[post: npost])
+            #print("Sent %d:%d" % (post, npost))
 
 class cbreak_terminal(object): # context handler for putting the terminal into and out of cbreak mode
     def __enter__(self):
@@ -83,8 +108,11 @@ if __name__ == "__main__":
         open(gargs.histfile, 'wb').close()
     host = gargs.host
     port = gargs.port
-    opcc = opc_client(host, port, gargs.nlights)
-    opcc.clear()
+    if gargs.fuzz:
+        opcc = opc_segment_fuzzer(host, port, gargs.nlights)
+    else:
+        opcc = opc_client(host, port, gargs.nlights)
+    # opcc.clear() XXX UNCOMMENT THIS
     try:
         with open(gargs.network) as network:
             try:
@@ -116,16 +144,27 @@ if __name__ == "__main__":
                 [c] clear the lights
                 [m] measure
                 [f] flash all lights
-                [s] save the network (to the file given by --network, default network.json
+                [s] save the network (to the file given by --network, default network.json)
                 [d] display the current model state
                 [p] print model state to stdout
                 [n] step the model by dT
                 [nd][dn] step and display
                 [r] run the model
+                [z] send a packet full of shit
                 [N] create a soma on the current measured strip
                 [S] create a synapse on the current measured strip
                 [C] change neuron/synapse parameters
                 """)
+            elif raw.startswith("z"):
+                nlights = 1
+                if ' ' in raw:
+                    nlights = int(raw.split(maxsplit=2)[1])
+                if len(raw.split()) > 2:
+                    fenceposts = ast.literal_eval(raw.split(maxsplit=2)[2])
+                else:
+                    fenceposts = None
+                opcc.send_leds(0, itertools.islice(itertools.repeat((0xA5, 0xA5, 0xA5)), nlights),
+                               fenceposts=fenceposts)
             elif raw == "C":
                 with cbreak_termina():
                     print("[j][k] select segment")

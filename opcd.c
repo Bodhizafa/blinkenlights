@@ -126,6 +126,7 @@ uint16_t translate_colors(uint16_t* dst_regs, struct color* src_rgbs[16], size_t
 }
 
 void display_thread_main(void* arg) {
+    return; // XXX REMOVE THIS
     printf("Starting display thread\n");
     while (true) {
         uv_mutex_lock(&pru_lock);
@@ -155,7 +156,7 @@ bool init() {
 		perror("Opening bind");
 		return false;
 	}
-	printf("Opened bind/unbind FDs\n");
+	//printf("Opened bind/unbind FDs\n");
 	if (!write_str(unbind_fd, "4a334000.pru0")) {
 		perror("Failed to unbind PRU0");
 	}
@@ -261,23 +262,6 @@ struct __attribute__((__packed__)) opc_pkt {
 	char body[];
 };
 
-struct opc_uv_data {
-	uv_mutex_t lock;
-	enum {
-        INIT,
-		COMPLETED, 	// pkt is unallocated (and should be NULL)
-		PARTIAL_HDR,	// pkt is a 4 byte allocation, size has not yet been recieved
-		COMPLETED_HDR,	// pkt is a 4 byte allocation, size has been recieved
-		ALLOCATED	// pkt is fully allocated
-
-	} pkt_state;
-	size_t pkt_sofar; // Bytes so far (i.e. current offset into buf). 0 if last packet was completed
-	union {
-		struct opc_pkt* pkt; // Pointer to packet buffer. NULL if last packet was completed
-		char* pkt_ptr;
-	};
-};
-
 void print_regbuf(uint16_t* regs, uint16_t nregs) {
     printf("Dumping %hu regs", nregs);
     for (int i = 0; i < nregs; i++) {
@@ -300,6 +284,7 @@ void print_regbuf(uint16_t* regs, uint16_t nregs) {
             regs[i] & (1 << 0) ? '1' : '0');
     }
 }
+
 // OPC is stateless and pragmatically a bit dumpster, so we don't get a client reference
 void after_opc_packet(struct opc_pkt* p) {
 	//fprintf(stderr, "Complete packet recieved chan: %hhu command: %hhu len: %hu\n", 
@@ -360,92 +345,94 @@ void after_opc_packet(struct opc_pkt* p) {
         // what?
         break;
     }
-
     fflush(stdout);
     free(p);
 };
 
+struct opc_uv_data {
+	uv_mutex_t lock;
+	size_t data_ctr; // Bytes so far (i.e. current offset into buf). 0 if last packet was completed
+	union {
+		struct opc_pkt* pkt; // Pointer to packet buffer. NULL if last packet was completed
+		char* pkt_ptr;
+	};
+};
+
+static ssize_t assemble_packet(char* buf, size_t len, struct opc_uv_data* data) {
+    assert(len);
+    if (data->data_ctr == 0) {
+        data->pkt = calloc(1, sizeof(data->pkt->hdr));
+    }
+    if (data->data_ctr < sizeof(data->pkt->hdr)) { // We haven't gotten the header yet
+        if (data->data_ctr + len < sizeof(data->pkt->hdr)) { // We didn't get the whole header
+            //printf("a"); fflush(stdout);
+            memcpy(data->pkt + data->data_ctr, buf, len);
+            data->data_ctr += len;
+            return len;
+        } else { // We did get the whole header
+            //printf("b"); fflush(stdout);
+            size_t to_copy = sizeof(data->pkt->hdr) - data->data_ctr;
+            assert(to_copy <= 4);
+            memcpy(data->pkt_ptr + data->data_ctr, buf, to_copy);
+            data->data_ctr += to_copy;
+            data->pkt->hdr.body_len = ntohs(data->pkt->hdr.body_len);
+            size_t pkt_len = data->pkt->hdr.body_len + sizeof(data->pkt->hdr);
+            data->pkt_ptr = realloc(data->pkt_ptr, pkt_len);
+            if (data->data_ctr - to_copy + len <= pkt_len) { // We got all or part of the packet
+                //printf("c"); fflush(stdout);
+                size_t to_copy_again = len - to_copy;
+                memcpy(data->pkt_ptr + data->data_ctr, buf + to_copy, to_copy_again);
+                data->data_ctr += to_copy_again;
+                return len;
+            } else {  // we got more than a packet
+                //printf("d"); fflush(stdout);
+                size_t to_copy_again = data->pkt->hdr.body_len;
+                memcpy(data->pkt_ptr + data->data_ctr, buf + to_copy, to_copy_again);
+                data->data_ctr += to_copy_again;
+                return sizeof(data->pkt->hdr) + data->pkt->hdr.body_len;
+            }
+        }
+    } else { // we already have the header and are allocated
+        //printf("e"); fflush(stdout);
+        if (data->data_ctr + len >= data->pkt->hdr.body_len + sizeof(data->pkt->hdr)) { // We got a packet or less
+            //printf("f"); fflush(stdout);
+            ssize_t to_copy = data->pkt->hdr.body_len + sizeof(data->pkt->hdr) - data->data_ctr;
+            assert(to_copy > 0);
+            memcpy(data->pkt_ptr + data->data_ctr, buf, to_copy);
+            data->data_ctr += to_copy;
+            return to_copy;
+        } else {
+            //printf("g"); fflush(stdout);
+            memcpy(data->pkt_ptr + data->data_ctr, buf, len);
+            data->data_ctr += len;
+            return len;
+        }
+    }
+    assert(0); // should not make it here
+}
+
 static void after_read(uv_stream_t* client,
 					   ssize_t nread,
 					   const uv_buf_t* uv_buf) {
-    //printf("Got %d bytes.\n", nread);
-    ssize_t original_nread = nread;
-    fflush(stdout);
-    struct opc_uv_data* uv_data = (struct opc_uv_data*)client->data;
-    uv_mutex_lock(&(uv_data->lock));
+    struct opc_uv_data* data = (struct opc_uv_data*)client->data;
+    //printf("read %d ", nread);
     char* buf = uv_buf->base;
     int iters = 0;
+    uv_mutex_lock(&data->lock);
 	if (nread > 0) {
-		while (nread > 0) {
-			switch (uv_data->pkt_state) {
-                case INIT:
-				case COMPLETED:
-					uv_data->pkt = malloc(sizeof(uv_data->pkt->hdr));
-					if (nread < sizeof(uv_data->pkt->hdr)) {
-						uv_data->pkt_state = PARTIAL_HDR;
-						memcpy(uv_data->pkt, buf, nread);
-						uv_data->pkt_sofar = nread;
-                        buf += nread;
-						nread = 0;
-						break;
-						// done
-					} else {
-						// in this case we malloc and immediately realloc, which isn't great.
-						uv_data->pkt_state = COMPLETED_HDR;
-						memcpy(uv_data->pkt, buf, sizeof(uv_data->pkt->hdr));
-						uv_data->pkt_sofar = sizeof(uv_data->pkt->hdr);
-						buf += sizeof(uv_data->pkt->hdr);
-						nread -= sizeof(uv_data->pkt->hdr);
-						goto completed_hdr;
-					}
-				case PARTIAL_HDR:
-					if (nread + uv_data->pkt_sofar < sizeof(uv_data->pkt->hdr)) {
-						// header is still partial
-						memcpy(uv_data->pkt_ptr + uv_data->pkt_sofar, buf, nread);
-						uv_data->pkt_sofar += nread;
-                        buf += nread;
-						nread = 0;
-						break;
-						// done
-					} else {
-						// we got the whole header, and we had part of it before. 
-						uv_data->pkt_state = COMPLETED_HDR;
-						size_t to_copy = sizeof(uv_data->pkt->hdr) - uv_data->pkt_sofar;
-						memcpy(uv_data->pkt_ptr + uv_data->pkt_sofar, buf, to_copy);
-						uv_data->pkt_sofar = sizeof(uv_data->pkt->hdr);
-						buf += to_copy;
-						nread -= to_copy;
-						// fallthrough
-					}
-                completed_hdr:
-				case COMPLETED_HDR:
-					uv_data->pkt->hdr.body_len = ntohs(uv_data->pkt->hdr.body_len);
-					uv_data->pkt = realloc(uv_data->pkt, uv_data->pkt->hdr.body_len + sizeof(uv_data->pkt->hdr));
-					uv_data->pkt_state = ALLOCATED;
-					// fallthrough
-				case ALLOCATED:;
-					size_t to_copy;
-					if (nread + uv_data->pkt_sofar >= (sizeof(uv_data->pkt->hdr) + uv_data->pkt->hdr.body_len)) { // we got the end of the packet
-						uv_data->pkt_state = COMPLETED;
-						to_copy = uv_data->pkt->hdr.body_len - uv_data->pkt_sofar + sizeof(uv_data->pkt->hdr);
-					} else {
-						to_copy = nread;
-						uv_data->pkt_sofar += nread;
-					}
-					memcpy(uv_data->pkt_ptr + uv_data->pkt_sofar, buf, to_copy);
-					uv_data->pkt_sofar += to_copy;
-					nread -= to_copy;
-					buf += to_copy;
-			}
-            assert(buf <= uv_buf->base + original_nread);
-            if (uv_data->pkt_state == COMPLETED) {
-                struct opc_pkt* pkt = uv_data->pkt;
-                uv_data->pkt = NULL;
-                uv_data->pkt_state = INIT;
-                uv_data->pkt_sofar = 0;
-                after_opc_packet(pkt); // after_opc_packet owns this memory now.
+        ssize_t nassembled = 0;
+        while (nassembled < nread) {
+            size_t na = assemble_packet(buf + nassembled, nread - nassembled, data);
+            //printf("assembled %d\n", na);
+            assert(na > 0);
+            if (data->data_ctr == data->pkt->hdr.body_len + sizeof(data->pkt->hdr)) {
+                //printf("Got a whole packet, chan %d, command %d, %d bytes in body\n", 
+                       //data->pkt->hdr.channel, data->pkt->hdr.command, data->pkt->hdr.body_len);
+                fflush(stdout);
+                memset(data, 0, sizeof(*data));
             }
-		}
+            nassembled += na;
+        }
 	} else if (nread < 0) {
 		if (nread != UV_EOF) {
 			fprintf(stderr, "read error %s\n", uv_strerror(nread));
@@ -454,42 +441,9 @@ static void after_read(uv_stream_t* client,
 		}
 		uv_close((uv_handle_t*)client, on_close);
 	}
-    uv_mutex_unlock(&(uv_data->lock));
+    fflush(stdout);
+    uv_mutex_unlock(&data->lock);
 	free(uv_buf->base);
-	/*
-	   int r;
-	   write_req_t* wr;
-	   uv_shutdown_t* req;
-
-	   if (nread <= 0 && buf->base != NULL)
-	   free(buf->base);
-
-	   if (nread == 0)
-	   return;
-
-	   if (nread < 0) {
-	//assert(nread == UV_EOF);
-	fprintf(stderr, "err: %s\n", uv_strerror(nread));
-
-	req = (uv_shutdown_t*) malloc(sizeof(*req));
-	assert(req != NULL);
-
-	r = uv_shutdown(req, handle, after_shutdown);
-	assert(r == 0);
-
-	return;
-	}
-
-	data_cntr += nread;
-
-	wr = (write_req_t*) malloc(sizeof(*wr));
-	assert(wr != NULL);
-
-	wr->buf = uv_buf_init(buf->base, nread);
-
-	r = uv_write(&wr->req, handle, &wr->buf, 1, after_write);
-	assert(r == 0);
-	 */
 }
 
 
@@ -552,10 +506,13 @@ static int tcp_echo_server() {
 
 int main() {
 	printf("Starting\n");
+    /*
+    XXX UNCOMMENT THIS
 	if (!init()) {
 		printf("Failed to start PRUs. Reinstall firmware?\n");
 		return 1;
 	}
+    */
 	printf("PRUs initialized\n");
 	int r;
 

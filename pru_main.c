@@ -67,7 +67,7 @@ void main(void)
 
 	status = &resourceTable.rpmsg_vdev.status;
 	while (!(*status & VIRTIO_CONFIG_S_DRIVER_OK)); // Wait for linux
-	PRU0_CTRL.CTRL_bit.CTR_EN = 1;
+	CTRL_REG.CTRL_bit.CTR_EN = 1;
 
 	// Initialize the shit
 	pru_rpmsg_init(&transport, &resourceTable.rpmsg_vring0, &resourceTable.rpmsg_vring1, (16 + (PRU_NO * 2)), FROM_ARM_HOST);

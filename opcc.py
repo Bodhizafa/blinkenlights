@@ -16,7 +16,7 @@ import traceback
 import ast
 import time
 import jps
-from fuck import TAU
+from fuck import TAU, parse_strands
 from collections import namedtuple
 from Neuron import Model2, Neuron, Synapse
 
@@ -34,9 +34,9 @@ class Animator(object):
     def __init__(self, nlights):
         self._animations_by_strand = {}
         self.nlights = nlights
-        self.t_0 = time.time()
-    @staticmethod
-    def _strand_generator(fn, period, t):
+        self._t_0 = time.time()
+
+    def _strand_generator(self, fn, period, t):
        yield from map(lambda th: fn(th + t * TAU), 
                       map(lambda ledno: float(ledno) / float(period) * TAU,
                           range(self.nlights)))
@@ -46,8 +46,9 @@ class Animator(object):
             period = self.nlights
         self._animations_by_strand[strand] = self.Animation(fn, period, rpm)
 
-    def generate_colors_by_strand():
-        return {strand: self._strand_generator(fn, period, rpm) for strand,  in self._animations_by_strand.items()}
+    def generate_colors_by_strand(self):
+        t_min = (time.time() - self._t_0) / 60.* TAU
+        return {strand: self._strand_generator(a.fn, a.period, t_min * a.rpm) for strand, a in self._animations_by_strand.items()}
 
 def clamp(val):
     return int(max(min(val, 255), 0))
@@ -165,7 +166,8 @@ if __name__ == "__main__":
         print("Network doesn't exist. starting anew.")
         params = {"dT": 0.0001}
     model = Model2(**params)
-    jpsa = Animator(gargs.nlights)
+    anim = Animator(gargs.nlights)
+    j = jps.JPSVM(jps.funcs, jps.ops, jps.args, jps.consts)
     try:
         # I wrote all this neat cli parser shit for fuck.py, prolly shoulda made it more reusable, sho' would be nice here.
         mstrand = 0
@@ -191,8 +193,11 @@ if __name__ == "__main__":
                 [n] step the model by dT
                 [nd][dn] step and display
                 [r] run the synaq model
-                [R] run the JPS animator
-                [j*] edit JPS animations
+                [j*] edit animations
+                 [c] <strands> clear animation on <strands>
+                 [p] <strands> <period> <function> set a pattern on a strand
+                 [s] <strands> <period> <rpm> <function> spin a pattern on a strand
+                 [r] run the animator
                 [z] send a packet full of shit
                 [N] create a soma on the current measured strip
                 [S] create a synapse on the current measured strip
@@ -200,7 +205,39 @@ if __name__ == "__main__":
                 [o] display an overview of the network
                 """)
             elif raw.startswith("j"):
-                pass
+                try:
+                    subcmd = raw[1]
+                    if subcmd =="c":
+                        strands = raw.split(maxsplit=1)[1]
+                        strands = parse_strands(strands)
+                        for strand in strands:
+                            anim.roll(lambda t: (0, 0, 0), 1, 0)
+                    elif subcmd == "p":
+                        strands, period, fn_str = raw.split(maxsplit=3)[1:]
+                        strands = parse_strands(strands)
+                        period = int(period)
+                        fn = j.parse_str(fn_str)
+                        for strand in strands:
+                            anim.roll(strand, fn, period, 0)
+                    elif subcmd == "s":
+                        strands, period, rpm, fn_str = raw.split(maxsplit=4)[1:]
+                        strands = parse_strands(strands)
+                        rpm = int(rpm)
+                        period = int(period)
+                        fn = j.parse_str(fn_str)
+                        for strand in strands:
+                            anim.roll(strand, fn, period, rpm)
+                    elif subcmd == "r":
+                        print("Running JPS. Ctrl-C to stop")
+                        try:
+                            while True:
+                                for strand, colors in anim.generate_colors_by_strand().items():
+                                    opcc.send_leds(strand, colors)
+                        except KeyboardInterrupt:
+                            print("Stopped")
+                except:
+                    print("Fuk u m8")
+                    print(traceback.format_exc())
             elif raw.startswith("z"):
                 nlights = 1
                 if ' ' in raw:
@@ -234,14 +271,6 @@ if __name__ == "__main__":
                         for _ in range(gargs.steps):
                             model.step()
                         for strand, colors in model.generate_colors_by_strand().items():
-                            opcc.send_leds(strand, colors)
-                except KeyboardInterrupt:
-                    print("Stopped")
-            elif raw == "R":
-                print("Running JPS. Ctrl-C to stop")
-                try:
-                    while True:
-                        for strand, colors in jpsa.generate_colors_by_strand().items():
                             opcc.send_leds(strand, colors)
                 except KeyboardInterrupt:
                     print("Stopped")

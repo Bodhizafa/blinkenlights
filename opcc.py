@@ -23,7 +23,7 @@ parser.add_argument("--histfile", type=str, help="History file", default=".opcc_
 parser.add_argument("--nlights", type=int, default=300, help="Number of LEDs per channel")
 parser.add_argument("--port", type=int, default=42024)
 parser.add_argument("--network", default="network.json", type=str, help="Network to load into the synaq")
-parser.add_argument("--steps", default=50, type=str, help="Number of model steps per visible frame")
+parser.add_argument("--steps", default=500, type=str, help="Number of model steps per visible frame")
 parser.add_argument("--fuzz", action="store_true")
 
 def clamp(val):
@@ -59,8 +59,24 @@ class opc_client(object):
                                  itertools.islice(itertools.repeat((0,0,0)), self.nlights - (start + nlights)))
         self.send_leds(strand, colors)
 
+    def multi_highlight(self, highlights):
+        """
+        highlights should be a list of kwargs equivalent to highlight
+        """
+        highlights.sort(key=lambda hl: hl.start)
+        cur = 0
+        colors = []
+        for hl in highlights:
+            start = hl['start']
+            nlights = hl['nlights']
+            color1 = hl['color1']
+            color2 = hl['color2'] if 'color2' in  hl else hl['color1']
+            if start > cur: # we need a blank
+                colors.extend(list(itertools.islice(itertools.repeat((0,0,0), start - cur))))
+        # TODO finish this
+
     def clear(self):
-        self.send(0, 0, bytearray(itertools.islice(itertools.repeat(0), self.nlights)))
+        self.send_leds(0, itertools.islice(itertools.repeat((0,0,0)), self.nlights))
 
     def send_leds(self, strand, colors, **kwargs): # colors is an iterable of (R, G, B) tuples, range 0-1
         channel = strand + 1
@@ -154,6 +170,7 @@ if __name__ == "__main__":
                 [N] create a soma on the current measured strip
                 [S] create a synapse on the current measured strip
                 [C] change neuron/synapse parameters
+                [o] display an overview of the network
                 """)
             elif raw.startswith("z"):
                 nlights = 1
@@ -202,14 +219,48 @@ if __name__ == "__main__":
                     json.dump(model.params(), network, indent=4)
                 print("Saved to %s" % gargs.network)
             elif raw == "N": # New Neuron
+                sys.stdout.write("I?:")
+                I = int(input())
                 k, n = model.add({
                         "start": mstart, 
                         "color": mcolor, 
                         "strand": mstrand
                     }, 
                     nlights = mend - mstart, 
-                    I = 100)
+                    I = I)
                 print("Created Neuron %s: %s" % (k, n))
+            elif raw == "o": # overview
+                with cbreak_terminal():
+                    c = None
+                    print("[j][k] select prev/next segment")
+                    print("[m] copy to measuring tape")
+                    segs = list(model.generate_segments())
+                    i = 0
+                    while c not in ("\x1b", "\n"):
+                        c = sys.stdin.read(1)
+                        if c == "j":
+                            i = max(i - 1, 0)
+                        elif c == "k":
+                            i = min(i + 1, len(segs) - 1)
+                        elif c == 'm':
+                            mstrand = seg['strand']
+                            mstart = seg['start']
+                            mend = seg['start'] + model.find(seg['key']).nlights
+                            print("copied")
+                            break
+                        seg = segs[i]
+                        thing = model.find(seg['key'])
+                        if isinstance(thing, Neuron):
+                            opcc.highlight(seg['strand'], 
+                                           seg['start'], 
+                                           model.find(seg['key']).nlights,
+                                           (0,0, 1))
+                        elif isinstance(thing, Synapse):
+                            opcc.highlight(seg['strand'], 
+                                           seg['start'], 
+                                           model.find(seg['key']).nlights,
+                                           (0, 1, 0))
+                        print("%s: %r\n%r" % (seg['key'], repr(seg), repr(thing)))
             elif raw == "S": # New Synapse
                 print("[enter] select, [esc] cancel")
                 with cbreak_terminal():
@@ -234,6 +285,7 @@ if __name__ == "__main__":
                             preseg = neuron_segs[i]
                             break
                         seg = neuron_segs[i]
+                        opcc.clear()
                         opcc.highlight(seg['strand'], seg['start'], model.find(seg['key']).nlights, (0, 0, 0.5))
                     if preseg is None:
                         print("Cancelled")
@@ -309,6 +361,7 @@ if __name__ == "__main__":
                     c = None
                     while c not in ('\x1b', '\n'): # escape, enter
                         sys.stdout.write("\r\033[Kstrand:%d\tsegment:%d:%d\tcolor: %s" % (mstrand, mstart, mend, mcolor))
+                        #opcc.clear()
                         opcc.highlight(mstrand, mstart, mend - mstart, mcolor)
                         c = sys.stdin.read(1)
                         if c == "p" or c == "i":
@@ -340,6 +393,9 @@ if __name__ == "__main__":
                             elif c == 'd':
                                 mb = max(mb - .125, 0)
                             mcolor = (mr, mg, mb)
+                        if c == '.':
+                            mstart = 0
+                            mend = 1
                 sys.stdout.write("\n")
             else:
                 print("No.")

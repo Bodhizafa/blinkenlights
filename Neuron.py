@@ -250,10 +250,13 @@ class Model2(MoreAbstractModel): # What Single Responsibility Principle?
                     }
 
     def generate_colors_by_strand(self):
-        return {
+        r =  {
             strand: self.generate_colors(strand)
                 for strand in self.segments_by_strand.keys()
         }
+        #print(repr(self.segments_by_strand[1]))
+        #print(repr(list(r[1])))
+        return r
             
 # XXX No idea if this works anymore. 
 # I tried to keep it sane but it hasn't been tested since half of it got vivisected into MoreAbstractModel
@@ -286,6 +289,8 @@ class Model(MoreAbstractModel): # old model serializes to a single strand
             if not set(keyorder[idx]) - set([None]):
                 raise WhatTheFuck("Keyorder entry [%d]%r is entirely None." % (idx, self.keyorder[idx]))
         self.buf = io.BytesIO()
+    def __repr__(self):
+        return repr(self.params())
     def params(self):
         p = super().params()
         p.update({
@@ -349,6 +354,8 @@ class Blank(object):
     def generate_vals(self):
         yield from itertools.islice(itertools.repeat(self.intensity), self.nlights)
 
+    def __repr__(self):
+        return repr(self.params())
     def params(self):
         return {
             "nlights": self.nlights
@@ -362,15 +369,21 @@ class Synapse(object):
         self._length = length
         self._reverse = reverse
         self.nlights = nlights or length
-        self._values = collections.deque([0 for _ in range(self._length)]) 
+        self._values = collections.deque([0 for _ in range(int(self._length / 100))]) 
+        self._s = 0
+
+    def __repr__(self):
+        return repr(self.params())
 
     def step(self):
-        self._values.appendleft(self.pre.V)
-        self._values.pop()
+        if self._s % 100 == 0:
+            self._values.appendleft(self.pre.V)
+            self._values.pop()
+        self._s += 1
 
     def output(self):
         "Effect on postsynaptic current"
-        return self._values[0] * self._weight
+        return self._values[0] * self._weight # XXX [-1]?
 
     def params(self):
         return {"weight": self._weight,
@@ -380,21 +393,14 @@ class Synapse(object):
     def generate_vals(self):
         #print(self._values)
         vlen = len(self._values)
+        
         if self._reverse:
-            pass # TODO
+            #rv = list(reversed(self._values))
             # yield from (self._values[vlen - (n ) for n in range(nlights))
+            yield from (self._values[int((float(n) / self.nlights) * vlen)] for n in range(-1, -self.nlights - 1, -1))
         else:
             yield from (self._values[int((float(n) / self.nlights) * vlen)] for n in range(self.nlights))
-    def lights(self):
-        if self._reverse:
-            return [clamp(v)for v in reversed(self._values)]
-        else:
-            return [clamp(v)for v in self._values]
-    def bufferize(self, buf):
-        if self._reverse:
-            buf.write("".join(["\x00\x00" + chr(clamp(v)) for v in reversed(self._values)]))
-        else:
-            buf.write("".join(["\x00\x00" + chr(clamp(v)) for v in self._values]))
+
     def test(self, buf):
         if self._reverse:
             buf.write("".join(["\x00\x00\xFF" for v in reversed(self._values)]))
@@ -456,6 +462,8 @@ class Neuron(object):
         # idx n = value at T - n * dT
         self.inputs  = []
 
+    def __repr__(self):
+        return repr(self.params())
     def step(self, dT):
         "Step the model by dT. Strange things may happen if you vary dT"
         self.I = sum([i.output() for i in self.inputs])

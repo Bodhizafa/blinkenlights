@@ -1,0 +1,10 @@
+[Unit]
+Description=OPC Server
+After=syslog.target network.target
+
+[Service]
+Type=simple
+ExecStart=/root/opcd
+
+[Install]
+WantedBy=multi-user.target

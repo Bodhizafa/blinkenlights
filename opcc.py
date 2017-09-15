@@ -15,6 +15,9 @@ import json
 import traceback
 import ast
 import time
+import jps
+from fuck import TAU
+from collections import namedtuple
 from Neuron import Model2, Neuron, Synapse
 
 parser = argparse.ArgumentParser()
@@ -25,6 +28,26 @@ parser.add_argument("--port", type=int, default=42024)
 parser.add_argument("--network", default="network.json", type=str, help="Network to load into the synaq")
 parser.add_argument("--steps", default=500, type=str, help="Number of model steps per visible frame")
 parser.add_argument("--fuzz", action="store_true")
+
+class Animator(object):
+    Animation = namedtuple("animation", ["fn", "period", "rpm"])
+    def __init__(self, nlights):
+        self._animations_by_strand = {}
+        self.nlights = nlights
+        self.t_0 = time.time()
+    @staticmethod
+    def _strand_generator(fn, period, t):
+       yield from map(lambda th: fn(th + t * TAU), 
+                      map(lambda ledno: float(ledno) / float(period) * TAU,
+                          range(self.nlights)))
+
+    def roll(self, strand, fn, period=None, rpm=20):
+        if period is None:
+            period = self.nlights
+        self._animations_by_strand[strand] = self.Animation(fn, period, rpm)
+
+    def generate_colors_by_strand():
+        return {strand: self._strand_generator(fn, period, rpm) for strand,  in self._animations_by_strand.items()}
 
 def clamp(val):
     return int(max(min(val, 255), 0))
@@ -78,7 +101,8 @@ class opc_client(object):
     def clear(self):
         self.send_leds(0, itertools.islice(itertools.repeat((0,0,0)), self.nlights))
 
-    def send_leds(self, strand, colors, **kwargs): # colors is an iterable of (R, G, B) tuples, range 0-1
+    def send_leds(self, strand, colors, **kwargs): 
+        # colors is an iterable of (R, G, B) tuples, range 0-1
         channel = strand + 1
         color_bytes = bytearray((clamp(int(component * 255)) for color in colors for component in color))
         body = struct.pack("%ds" % min(len(color_bytes), self.nlights * 3), color_bytes)
@@ -141,6 +165,7 @@ if __name__ == "__main__":
         print("Network doesn't exist. starting anew.")
         params = {"dT": 0.0001}
     model = Model2(**params)
+    jpsa = Animator(gargs.nlights)
     try:
         # I wrote all this neat cli parser shit for fuck.py, prolly shoulda made it more reusable, sho' would be nice here.
         mstrand = 0
@@ -165,13 +190,17 @@ if __name__ == "__main__":
                 [p] print model state to stdout
                 [n] step the model by dT
                 [nd][dn] step and display
-                [r] run the model
+                [r] run the synaq model
+                [R] run the JPS animator
+                [j*] edit JPS animations
                 [z] send a packet full of shit
                 [N] create a soma on the current measured strip
                 [S] create a synapse on the current measured strip
                 [C] change neuron/synapse parameters
                 [o] display an overview of the network
                 """)
+            elif raw.startswith("j"):
+                pass
             elif raw.startswith("z"):
                 nlights = 1
                 if ' ' in raw:
@@ -199,12 +228,20 @@ if __name__ == "__main__":
             elif raw == "c":
                 opcc.clear()
             elif raw == "r":
-                print("Running. Ctrl-C to stop")
+                print("Running synaq. Ctrl-C to stop")
                 try:
                     while True:
                         for _ in range(gargs.steps):
                             model.step()
                         for strand, colors in model.generate_colors_by_strand().items():
+                            opcc.send_leds(strand, colors)
+                except KeyboardInterrupt:
+                    print("Stopped")
+            elif raw == "R":
+                print("Running JPS. Ctrl-C to stop")
+                try:
+                    while True:
+                        for strand, colors in jpsa.generate_colors_by_strand().items():
                             opcc.send_leds(strand, colors)
                 except KeyboardInterrupt:
                     print("Stopped")

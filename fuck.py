@@ -16,8 +16,9 @@ import jps
 from pprint import pprint
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--pru", type=int, default=argparse.SUPPRESS, choices=[0,1], help="Which PRU?")
+parser.add_argument("--pru", type=int, default=0, choices=[0,1], help="Which PRU?")
 parser.add_argument("--len", type=int, default=25, help="Length of the longest strand")
+parser.add_argument("--opc-host", type=str, default=None, help="OPC host:port")
 parser.add_argument("--histfile", type=str, default=".fuck_history", help="History file")
 TAU = math.pi * 2
 
@@ -140,99 +141,6 @@ class PRU(Output):
         with self.lock:
             self.send("c", "p".encode('ascii'))
             print(self.recv("c"))
-
-# color-friendly operators. Should all take either an RGB tuple or a value and return the same.
-# All tuple members and values should come in between 0 and 1 and be returned the same
-def unary_sub(v):
-    try:
-        return 1 - v
-    except TypeError:
-        R, G, B = v
-        return (1-R, 1-G, 1-B)
-
-def binary_add(l, r):
-    try:
-        return (max(l[0] + r[0], 1),
-            max(l[1] + r[1], 1),
-            max(l[2] + r[2], 1))
-    except TypeError:
-        return max(l + r, 1)
-
-def binary_sub(l, r):
-    try:
-        return (min(l[0] - r[0], 0),
-            min(l[1] - r[1], 0),
-            min(l[2] - r[2], 0))
-    except TypeError:
-        return min(l - r, 0)
-
-def binary_mult(l, r):
-    try:
-        return (l[0] * r[0],
-            l[1] * r[1],
-            l[2] * r[2])
-    except TypeError:
-        return l * r
-
-def binary_div(l, r):
-    try:
-        return (1 - ((1 - l[0]) * (1 - r[0])),
-            1 - ((1 - l[1]) * (1 - r[1])),
-            1 - ((1 - l[2]) * (1 - r[2])))
-    except TypeError:
-        return 1 - ((1 - l) * (1 - r))
-
-unary_funcs_by_op = {
-    ast.UAdd: lambda operand: operand,
-    ast.USub: unary_sub,
-}
-
-binary_funcs_by_op = {
-    ast.Add: binary_add,
-    ast.Sub: binary_sub,
-    ast.Mult: binary_mult,
-}
-# functions available in the fuck DSL
-funcs_by_name = {
-    # value functions - Take theta and produce 0 to 1. Should rougly follow cosine in phase-ness
-    "cos": lambda th: (math.cos(th) + 1) / 2,
-    "sin": lambda th: (math.sin(th) + 1) / 2,
-    "sqr": lambda th: 1 if th < TAU / 2 else 0,
-    "tri": lambda th: th / (TAU / 2) if th < TAU / 2 else 1 - (th / (TAU / 2)),
-
-    # Interpolaters - take a value and return an RGB tuple
-    "R": lambda v: (v, 0, 0),
-    "G": lambda v: (0, v, 0),
-    "B": lambda v: (0, 0, v),
-    "Y": lambda v: (v, v, 0),
-    "C": lambda v: (0, v, v),
-    "M": lambda v: (v, 0, v),
-    "W": lambda v: (v, v, v),
-}
-# Constants  available in the fuck DSL
-constants_by_name = { 
-    "TAU": TAU,
-}
-
-pat_args = ['th']
-
-globals_dict = {k: v for k, v in itertools.chain(funcs_by_name.items(), constants_by_name.items(), zip(pat_args, itertools.repeat(None)))}
-
-def fuckparse(arg_str):
-
-    a = ast.parse(arg_str, mode="eval")
-    lamb = ast.Lambda(args=ast.arguments(args=[ast.arg(arg=arg, annotation=None) for arg in pat_args],
-                                         vararg=None, kwonlyargs=[],
-                                         kw_defaults=[], kwarg=None, defaults=[]),
-                  body=a.body)
-    fn_ast = ast.Expression(body=lamb)
-    for node in ast.walk(fn_ast): # ast.fix_missing_locations seems to not.
-        node.lineno, node.col_offset = (0,0)
-        if isinstance(node, ast.Name) and not node.id in globals_dict.keys():
-            raise SyntaxError("Name %s unknown" % node.id)
-    co = compile(fn_ast, filename="<fuck>", mode="eval")
-    fn = eval(co, globals_dict)
-    return fn
  
 # All the math above works from 0 to 1 floating point, PRUs want 0 to 255 fixed point
 def clamp_and_rerange(R, G, B):
@@ -341,11 +249,21 @@ def display_thread_main(pru): # Ghetto ass shit because I can't figure out why t
 
 if __name__ == "__main__":
     gargs = parser.parse_args()
-    if hasattr(gargs, 'pru'):
+    if gargs.opc_host is not None:
+        pru = None
+        if ':' in gargs.opc_host:
+            host, port = gargs.opc_host.split(":", maxsplit=1)
+            port = int(port)
+        else:
+            host = gargs.opc_host
+            port = 42024
+        print("OPC host: %s:%s" % (host, port))
+        opc = opc_client(host, port, gargs.len)
+    else:
         print("PRU %d" % gargs.pru)
         pru = PRU(gargs.pru, gargs.len)
-    else:
-        pass
+        opc = None
+        
     j = jps.JPSVM(jps.funcs, jps.ops, jps.args, jps.consts)
     readline.parse_and_bind("set editing-mode vi") # Deal with it 🕶
     try:

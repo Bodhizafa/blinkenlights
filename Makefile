@@ -1,4 +1,4 @@
-# Copyright 2017 Landon Meernik. Beerware license 
+# Copyright 2017 Landon Meernik.
 
 CLPRU=clpru
 CLPRU_CFLAGS=-v3 -O2 --display_error_number --emit_warnings_as_errors
@@ -14,11 +14,10 @@ install: build/am335x-pru0-fw build/am335x-pru1-fw build/opcd
 	cp build/am335x-pru0-fw /lib/firmware/am335x-pru0-fw
 	cp build/am335x-pru1-fw /lib/firmware/am335x-pru1-fw
 	cp build/opcd /root/opcd
-cp build/
-	$(MAKE) restartpru
+	cp opcd.service /etc/systemd/system/opcd.service
 
 magic: install
-	./fuck.py --pru 0 --len 30
+	./fuck.py --pru 0 --len 282
 
 more_magic: install build/opcd
 	./build/opcd

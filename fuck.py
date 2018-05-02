@@ -320,8 +320,8 @@ funcs_by_cmd = {
     "clear": cmd_clear,
     "reset": cmd_reset,
     "pulse": cmd_pulse,
-    "ping": lambda pru: pru.ping(),
-    "help": lambda pru: print("\n".join(funcs_by_cmd.keys())),
+    "ping": lambda pru, j: pru.ping(),
+    "help": lambda pru, j: print("\n".join(funcs_by_cmd.keys())),
     "print": cmd_print,
     "pattern": cmd_pattern,
     "roll": cmd_roll,
@@ -351,7 +351,7 @@ if __name__ == "__main__":
     try:
         readline.read_history_file(gargs.histfile)
     except FileNotFoundError:
-        open(histfile, 'wb').close()
+        open(gargs.histfile, 'wb+').close()
     try:
         while True:
             sys.stdout.write("🍆 ")

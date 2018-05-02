@@ -41,8 +41,15 @@ build/am335x-pru1-fw.obj: pru_main.c resource_table.h build
 build/opcd: opcd.c
 	$(CC) -std=gnu11 -g3 -ggdb -Werror opcd.c -o build/opcd -luv
 
-restartpru:  # If it's not already started, the write to unbind will fail
-	echo "4a338000.pru1" > /sys/bus/platform/drivers/pru-rproc/unbind || true
-	echo "4a334000.pru0" > /sys/bus/platform/drivers/pru-rproc/unbind || true
-	echo "4a338000.pru1" > /sys/bus/platform/drivers/pru-rproc/bind
-	echo "4a334000.pru0" > /sys/bus/platform/drivers/pru-rproc/bind
+#restartpru:  # If it's not already started, the write to unbind will fail
+#	echo "4a338000.pru1" > /sys/bus/platform/drivers/pru-rproc/unbind || true
+#	echo "4a334000.pru0" > /sys/bus/platform/drivers/pru-rproc/unbind || true
+#	echo "4a338000.pru1" > /sys/bus/platform/drivers/pru-rproc/bind
+#	echo "4a334000.pru0" > /sys/bus/platform/drivers/pru-rproc/bind
+
+restartpru: 
+	echo 'stop' > /sys/class/remoteproc/remoteproc1/state || true
+	echo 'stop' > /sys/class/remoteproc/remoteproc2/state || true
+	echo 'start' > /sys/class/remoteproc/remoteproc1/state
+	echo 'start' > /sys/class/remoteproc/remoteproc2/state
+

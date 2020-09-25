@@ -16,9 +16,10 @@ import traceback
 import ast
 import time
 import jps
-from fuck import TAU, parse_strands
 from collections import namedtuple
 from Neuron import Model2, Neuron, Synapse
+TAU = math.pi * 2
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--host", type=str, help="OPC host", default="10.4.20.2")
@@ -28,6 +29,17 @@ parser.add_argument("--port", type=int, default=42024)
 parser.add_argument("--network", default="network.json", type=str, help="Network to load into the synaq")
 parser.add_argument("--steps", default=500, type=str, help="Number of model steps per visible frame")
 parser.add_argument("--fuzz", action="store_true")
+
+def parse_strands(string):
+    try:
+        strands = [int(string)]
+    except ValueError:
+        try:
+            start, end = map(int, string.split(":", maxsplit=1))
+            strands = range(start, end)
+        except ValueError:
+            strands = map(int, string.split(','))
+    return set(strands)
 
 class Animator(object):
     Animation = namedtuple("animation", ["fn", "period", "rpm"])
@@ -169,7 +181,6 @@ if __name__ == "__main__":
     anim = Animator(gargs.nlights)
     j = jps.JPSVM(jps.funcs, jps.ops, jps.args, jps.consts)
     try:
-        # I wrote all this neat cli parser shit for fuck.py, prolly shoulda made it more reusable, sho' would be nice here.
         mstrand = 0
         mstart = 0
         mend = 1

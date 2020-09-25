@@ -8,6 +8,7 @@
 #include <pru_rpmsg.h>
 #include "resource_table.h"
 // This is a program already in progress, start reading at ./resource_table.h
+// This part runs on the PRU coprocessor, and does actual WS2812 signal generation.
 
 volatile register uint32_t __R31; // magic interrupt control and other shit register
 volatile register uint32_t __R30; // Output register
@@ -18,14 +19,9 @@ uint8_t payload[RPMSG_BUF_SIZE];
 void 
 display_2812B(void* buffer, uint16_t nregs)
 {
-/* Never fucking mind this shit doesn't work.
-   T0H = 0.4  us 
-   T0L = 0.85 us
-   T1H = 0.8  us
-   T1L = 0.45 us
-
+/* 
+This assumes data has been munged up into register-at-a-time format by opcd.c
 See also: https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
-
    Reshaped timing:
    T0H = 400ns
    T0L = 1000ns
@@ -69,7 +65,7 @@ void main(void)
 	while (!(*status & VIRTIO_CONFIG_S_DRIVER_OK)); // Wait for linux
 	CTRL_REG.CTRL_bit.CTR_EN = 1;
 
-	// Initialize the shit
+	// Initialize vrings
 	pru_rpmsg_init(&transport, &resourceTable.rpmsg_vring0, &resourceTable.rpmsg_vring1, (16 + (PRU_NO * 2)), FROM_ARM_HOST);
 
 	// I guess the thing above wasn't enough shit initialization, so do more.

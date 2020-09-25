@@ -5,7 +5,8 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  * 
- * Also I fucked with this version of it. 
+ * Landon modified this version to permanently mux all the PRU pins available to the PRUs.
+ * This is not meant to be used with "overlays" or any other dynamic pin-remuxing functionality.
  */
 
 /dts-v1/;

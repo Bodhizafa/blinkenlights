@@ -1,6 +1,6 @@
 /*
-   Sleketon appropriated from: https://raw.githubusercontent.com/trevnorris/libuv-examples/master/tcp-echo.c
-   Everything else by Landon Meernik
+   Skeleton appropriated from: https://raw.githubusercontent.com/trevnorris/libuv-examples/master/tcp-echo.c
+   Everything else by Landon Meernik (C) 2017, beerware license.
  */
 #include <stdlib.h>
 #include <stdio.h>

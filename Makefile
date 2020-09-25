@@ -16,9 +16,6 @@ install: build/am335x-pru0-fw build/am335x-pru1-fw build/opcd
 	cp build/opcd /root/opcd
 	cp opcd.service /etc/systemd/system/opcd.service
 
-magic: install
-	./fuck.py --pru 0 --len 282
-
 more_magic: install build/opcd
 	./build/opcd
 

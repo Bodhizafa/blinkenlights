@@ -6,7 +6,8 @@ entity Wimbledon is
     Port ( rst_in : in STD_LOGIC;
 			  clk_in : in  STD_LOGIC;
            data_in : in  STD_LOGIC;
-           data_out : out  STD_LOGIC_VECTOR (7 downto 0)
+           data_out : out  STD_LOGIC_VECTOR (7 downto 0);
+			  debug_out : out STD_LOGIC
 		  );
 end Wimbledon;
 
@@ -16,7 +17,8 @@ architecture Behavioral of Wimbledon is
 			mux_rst_in: IN STD_LOGIC;
 			mux_clk_in: IN STD_LOGIC;
 			mux_data_in: IN STD_LOGIC;
-			mux_data_out: OUT STD_LOGIC_VECTOR (7 downto 0)
+			mux_data_out: OUT STD_LOGIC_VECTOR (7 downto 0);
+			mux_debug_out: OUT STD_LOGIC
 		);
 		END COMPONENT;
 
@@ -25,7 +27,8 @@ begin
 		mux_rst_in => rst_in,
 		mux_clk_in => clk_in,
 		mux_data_in => data_in,
-		mux_data_out => data_out
-	);
+		mux_data_out => data_out,
+		mux_debug_out => debug_out
+		);
 end Behavioral;
 

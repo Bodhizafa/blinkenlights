@@ -29,6 +29,10 @@ pub fn build(b: *std.build.Builder) void {
     exe_tests.setTarget(target);
     exe_tests.setBuildMode(mode);
 
+    const swizzler_tests = b.addTest("src/swizzler.zig");
+    swizzler_tests.setTarget(target);
+    swizzler_tests.setBuildMode(mode);
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
 }

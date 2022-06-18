@@ -1,270 +1,88 @@
 const std = @import("std");
-const ArrayList = std.ArrayList;
 
-const Color = struct {
-    red: u8 = 0, 
-    green: u8 = 0, 
-    blue: u8 = 0
+pub const io_mode = .evented;
+
+const Command = enum(u8) {
+    COLORS_8BIT = 0x00,
+    COLORS_16BIT = 0x02,
+    SYSEX = 0xFF,
 };
-const ColorList = ArrayList(Color);
 
-pub const PixelBuffers = struct {
-    data: [8]ColorList,
-    pub fn init(allocator: std.mem.Allocator) PixelBuffers {
-        var data: [8]ColorList = [8]ColorList{
-            ColorList.init(allocator),
-            ColorList.init(allocator),
-            ColorList.init(allocator),
-            ColorList.init(allocator),
-            ColorList.init(allocator),
-            ColorList.init(allocator),
-            ColorList.init(allocator),
-            ColorList.init(allocator)
+const Message = struct {
+    channel: u8,
+    command: Command,
+    data: []const u8,
+};
+
+const ClientError = error {
+    Disconnected
+};
+
+pub const Client = struct {
+    stream: std.net.Stream,
+    allocator: std.mem.Allocator,
+    fn read_message(self: *Client) !Message {
+        const header_len = 4;
+        var header_buf: [4]u8 = .{0} ** 4;
+        var cur_idx: usize = 0;
+        while (cur_idx < header_len) {
+            const new_read_len = try self.stream.read(header_buf[cur_idx..header_len]);
+            if (new_read_len == 0) {
+                return ClientError.Disconnected;
+            }
+            cur_idx += new_read_len;
+        }
+        const channel = header_buf[0];
+        const command = header_buf[1];
+        cur_idx = 0;
+        const data_len: usize = std.mem.readIntBig(u16, header_buf[2..4]);
+        std.debug.print("Channel: {d}. Command: {d}. Data len: {d}. Alloc: {any}\n",
+            .{channel, command, data_len, self.allocator});
+        const data_buf = try self.allocator.alloc(u8, data_len);
+        while (cur_idx < data_len) {
+            const new_read_len = try self.stream.read(data_buf[cur_idx..data_len]);
+            if (new_read_len == 0) {
+                return ClientError.Disconnected;
+            }
+            cur_idx += new_read_len;
+        }
+        std.debug.print("Data: {any}\n", .{data_buf});
+        return Message{
+            .channel = channel,
+            .command = try std.meta.intToEnum(Command, command),
+            .data = data_buf,
         };
-        return PixelBuffers{.data = data};
     }
-    
-    pub fn deinit(self: *PixelBuffers) void {
-        for (self.data) |list| {
-            list.deinit();
-        }
-    }
-    
-    pub fn update(self: *PixelBuffers, channel: u8, offset: u16, new_data: [] const Color) !void{
-        if (channel > 8 or channel == 0) {
-            std.log.err("Illegal channel: {d}", .{channel});
-            return;
-        }
-        std.debug.print("\nAdding {d} pixels to channel {d}, offset {d}", .{new_data.len, channel, offset});
-        var data = &self.data[channel-1];
-        if (offset + new_data.len > data.items.len) {
-            try data.resize(offset + new_data.len);
-        }
-        try data.replaceRange(offset, new_data.len, new_data);
-    }
-    pub fn output(self: *PixelBuffers, allocator: std.mem.Allocator) !ArrayList(u8) {
-        var max_length:usize = 0;
-        for (self.data) |channel_buf| {
-            max_length = std.math.max(max_length, channel_buf.items.len);
-        }
-        std.debug.print("\nMax Length: {d}", .{max_length});
-        var out =  try ArrayList(u8).initCapacity(allocator, max_length * 8 * 3 + 2);
-        try out.append(0x00);  // Lead-in. I saw a first clock get dropped once, maybe
-        try out.append(0xFF);  // Begin
 
-
-        var i: usize = 0;
-        while (i < max_length) : (i += 1) {
-            var pixels =  [_]Color{
-                Color{.red = 0, .green = 0, .blue = 0},
-            } ** 8;
-            var j: u4 = 0;
-            while (j < 8) : (j += 1) {
-                if (self.data[j].items.len >= max_length) {
-                    pixels[j] = self.data[j].items[i];
-                }
-            }
-            j = 0;
-            while (j < 8) : (j += 1) {
-                const shift = 7 - j;
-                const mask: u16 = @as(u16, 1) << shift;
-                try out.append(@intCast(u8,
-                    (((pixels[0].red & mask) >> shift) << 0)|
-                    (((pixels[1].red & mask) >> shift) << 1)|
-                    (((pixels[2].red & mask) >> shift) << 2)|
-                    (((pixels[3].red & mask) >> shift) << 3)|
-                    (((pixels[4].red & mask) >> shift) << 4)|
-                    (((pixels[5].red & mask) >> shift) << 5)|
-                    (((pixels[6].red & mask) >> shift) << 6)|
-                    (((pixels[7].red & mask) >> shift) << 7)));
-            }
-            j = 0;
-            while (j < 8) : (j += 1) {
-                const shift = 7 - j;
-                const mask: u16 = @as(u16, 1) << shift;
-                try out.append(@intCast(u8,
-                    (((pixels[0].green & mask) >> shift) << 0)|
-                    (((pixels[1].green & mask) >> shift) << 1)|
-                    (((pixels[2].green & mask) >> shift) << 2)|
-                    (((pixels[3].green & mask) >> shift) << 3)|
-                    (((pixels[4].green & mask) >> shift) << 4)|
-                    (((pixels[5].green & mask) >> shift) << 5)|
-                    (((pixels[6].green & mask) >> shift) << 6)|
-                    (((pixels[7].green & mask) >> shift) << 7)));
-            }
-            j = 0;
-            while (j < 8) : (j += 1) {
-                const shift = 7 - j;
-                const mask: u16 = @as(u16, 1) << shift;
-                try out.append(@intCast(u8,
-                    (((pixels[0].blue & mask) >> shift) << 0)|
-                    (((pixels[1].blue & mask) >> shift) << 1)|
-                    (((pixels[2].blue & mask) >> shift) << 2)|
-                    (((pixels[3].blue & mask) >> shift) << 3)|
-                    (((pixels[4].blue & mask) >> shift) << 4)|
-                    (((pixels[5].blue & mask) >> shift) << 5)|
-                    (((pixels[6].blue & mask) >> shift) << 6)|
-                    (((pixels[7].blue & mask) >> shift) << 7)));
-            }
+    fn handle(self: *Client) !void {
+        defer {
+            self.stream.close();
         }
-        return out;
+        while (true) {
+            const message = self.read_message() catch |err| {
+                std.log.info("Client Lost: {any}\n", .{err});
+                return;
+            };
+            
+            std.debug.print("Internet!: {any}\n", .{message});
+        }
     }
 };
 
 pub fn main() anyerror!void {
-    std.log.info("All your codebase are belong to us.", .{});
-    var snarbledina = PixelBuffers.init(test_allocator);
-    defer snarbledina.deinit();
-    try snarbledina.update(1, 0, &[_]Color{Color{.red = 128, .green = 128, .blue = 128}});
-    const out = try snarbledina.output(test_allocator);
-    defer out.deinit();
-    try std.testing.expectEqualSlices(u8, &[_]u8{0x00, 0xFF}, out.items);
-}
-
-const test_allocator = std.testing.allocator;
-test "lead in" {
-    var snarbledina = PixelBuffers.init(test_allocator);
-    std.debug.print("All your codebase are belong to us.", .{});
-    defer snarbledina.deinit();
-    const out = try snarbledina.output(test_allocator);
-    defer out.deinit();
-    try std.testing.expectEqualSlices(u8, &[_]u8{0x00, 0xFF}, out.items);
-}
-
-test "CH1" {
-    var snarbledina = PixelBuffers.init(test_allocator);
-    defer snarbledina.deinit();
-    try snarbledina.update(1, 0, &[_]Color{Color{.red = 0xFF, .green = 0xFF, .blue = 0xFF}});
-    const out = try snarbledina.output(test_allocator);
-    defer out.deinit();
-    try std.testing.expectEqualSlices(u8, &[_]u8{0x00, 0xFF,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-        0b00000001,
-    }, out.items);
-}
-
-test "CH2" {
-    var snarbledina = PixelBuffers.init(test_allocator);
-    defer snarbledina.deinit();
-    try snarbledina.update(2, 0, &[_]Color{Color{.red = 0b10100101, .green = 0b01011010, .blue = 0b10101010}});
-    const out = try snarbledina.output(test_allocator);
-    defer out.deinit();
-    try std.testing.expectEqualSlices(u8, &[_]u8{0x00, 0xFF,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-    }, out.items);
-}
-
-test "Long" {
-    var snarbledina = PixelBuffers.init(test_allocator);
-    defer snarbledina.deinit();
-    try snarbledina.update(2, 0, &[_]Color{
-        Color{.red = 0b10100101, .green = 0b01011010, .blue = 0b10101010},
-        Color{.red = 0b11001100, .green = 0b10101010, .blue = 0b00000000},
-    });
-    const out = try snarbledina.output(test_allocator);
-    defer out.deinit();
-    try std.testing.expectEqualSlices(u8, &[_]u8{0x00, 0xFF,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-
-        0b00000010,
-        0b00000010,
-        0b00000000,
-        0b00000000,
-        0b00000010,
-        0b00000010,
-        0b00000000,
-        0b00000000,
-
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-        0b00000010,
-        0b00000000,
-
-        0b00000000,
-        0b00000000,
-        0b00000000,
-        0b00000000,
-        0b00000000,
-        0b00000000,
-        0b00000000,
-        0b00000000,
-    }, out.items);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    var server = std.net.StreamServer.init(.{ .reuse_address = true });
+    defer server.deinit();
+    try server.listen(std.net.Address.parseIp("127.0.0.1", 42024) catch unreachable);
+    std.log.info("Listening on {}\n", .{server.listen_address});
+    std.debug.print("Alloc: {any}", .{allocator});
+    while(true) {
+        const client = try allocator.create(Client);
+        client.* = Client {
+            .stream = (try server.accept()).stream,
+            .allocator = allocator,
+        };
+        _ = async client.handle();
+    }
 }

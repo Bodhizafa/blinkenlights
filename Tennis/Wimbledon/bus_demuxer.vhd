@@ -6,7 +6,8 @@ entity bus_demuxer is
     Port (mux_rst_in: in STD_LOGIC;
 			 mux_clk_in : in  STD_LOGIC;
           mux_data_in : in  STD_LOGIC;
-          mux_data_out : out  STD_LOGIC_VECTOR (7 downto 0));
+          mux_data_out : out  STD_LOGIC_VECTOR (7 downto 0);
+			 mux_debug_out : out STD_LOGIC);
 end bus_demuxer;
 
 architecture Behavioral of bus_demuxer is	
@@ -19,11 +20,13 @@ begin
 	process (mux_clk_in, mux_rst_in)
 	begin
 		if mux_rst_in = '0' then
+			mux_debug_out <= '1';
 			counter <= 0;
 			shift_buf <= x"00";
 			mux_data_out <= x"00";
 			state <= PRE_LEADIN;
 		elsif RISING_EDGE(mux_clk_in) then
+			mux_debug_out <= '0';
 			case state is 
 				when PRE_LEADIN =>
 					mux_data_out <= x"00";

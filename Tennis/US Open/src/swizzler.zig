@@ -35,11 +35,11 @@ pub const PixelBuffers = struct {
             std.log.err("Illegal channel: {d}", .{channel});
             return;
         }
-        std.debug.print("\nAdding {d} pixels to channel {d}, offset {d}", .{new_data.len, channel, offset});
         self.lock.lock();
         defer self.lock.unlock();
+        std.debug.print("\nAdding {d} pixels to channel {d}, offset {d}", .{new_data.len, channel, offset});
         var channel_buf = &self.channel_bufs[channel-1];
-        if (offset + new_data.len > channel_bufs.items.len) {
+        if (offset + new_data.len > self.channel_bufs[channel].items.len) {
             try channel_buf.resize(offset + new_data.len);
         }
         try channel_buf.replaceRange(offset, new_data.len, new_data);
@@ -73,13 +73,13 @@ pub const PixelBuffers = struct {
                 const shift = 7 - j;
                 const mask: u16 = @as(u16, 1) << shift;
                 try out.append(@intCast(u8,
-                    (((pixels[0].red & mask) >> shift) << 0)|
-                    (((pixels[1].red & mask) >> shift) << 1)|
-                    (((pixels[2].red & mask) >> shift) << 2)|
-                    (((pixels[3].red & mask) >> shift) << 3)|
-                    (((pixels[4].red & mask) >> shift) << 4)|
-                    (((pixels[5].red & mask) >> shift) << 5)|
-                    (((pixels[6].red & mask) >> shift) << 6)|
+                    (((pixels[0].red & mask) >> shift) << 0) |
+                    (((pixels[1].red & mask) >> shift) << 1) |
+                    (((pixels[2].red & mask) >> shift) << 2) |
+                    (((pixels[3].red & mask) >> shift) << 3) |
+                    (((pixels[4].red & mask) >> shift) << 4) |
+                    (((pixels[5].red & mask) >> shift) << 5) |
+                    (((pixels[6].red & mask) >> shift) << 6) |
                     (((pixels[7].red & mask) >> shift) << 7)));
             }
             j = 0;
@@ -87,13 +87,13 @@ pub const PixelBuffers = struct {
                 const shift = 7 - j;
                 const mask: u16 = @as(u16, 1) << shift;
                 try out.append(@intCast(u8,
-                    (((pixels[0].green & mask) >> shift) << 0)|
-                    (((pixels[1].green & mask) >> shift) << 1)|
-                    (((pixels[2].green & mask) >> shift) << 2)|
-                    (((pixels[3].green & mask) >> shift) << 3)|
-                    (((pixels[4].green & mask) >> shift) << 4)|
-                    (((pixels[5].green & mask) >> shift) << 5)|
-                    (((pixels[6].green & mask) >> shift) << 6)|
+                    (((pixels[0].green & mask) >> shift) << 0) |
+                    (((pixels[1].green & mask) >> shift) << 1) |
+                    (((pixels[2].green & mask) >> shift) << 2) |
+                    (((pixels[3].green & mask) >> shift) << 3) |
+                    (((pixels[4].green & mask) >> shift) << 4) |
+                    (((pixels[5].green & mask) >> shift) << 5) |
+                    (((pixels[6].green & mask) >> shift) << 6) |
                     (((pixels[7].green & mask) >> shift) << 7)));
             }
             j = 0;
@@ -101,13 +101,13 @@ pub const PixelBuffers = struct {
                 const shift = 7 - j;
                 const mask: u16 = @as(u16, 1) << shift;
                 try out.append(@intCast(u8,
-                    (((pixels[0].blue & mask) >> shift) << 0)|
-                    (((pixels[1].blue & mask) >> shift) << 1)|
-                    (((pixels[2].blue & mask) >> shift) << 2)|
-                    (((pixels[3].blue & mask) >> shift) << 3)|
-                    (((pixels[4].blue & mask) >> shift) << 4)|
-                    (((pixels[5].blue & mask) >> shift) << 5)|
-                    (((pixels[6].blue & mask) >> shift) << 6)|
+                    (((pixels[0].blue & mask) >> shift) << 0) |
+                    (((pixels[1].blue & mask) >> shift) << 1) |
+                    (((pixels[2].blue & mask) >> shift) << 2) |
+                    (((pixels[3].blue & mask) >> shift) << 3) |
+                    (((pixels[4].blue & mask) >> shift) << 4) |
+                    (((pixels[5].blue & mask) >> shift) << 5) |
+                    (((pixels[6].blue & mask) >> shift) << 6) |
                     (((pixels[7].blue & mask) >> shift) << 7)));
             }
         }

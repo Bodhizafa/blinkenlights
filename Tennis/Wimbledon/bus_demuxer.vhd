@@ -13,7 +13,6 @@ end bus_demuxer;
 architecture Behavioral of bus_demuxer is	
 	signal counter: natural range 0 to 7;
 	signal shift_buf: std_logic_vector(7 downto 0);
-	signal leadin_active: std_logic;
 	type t_state is (PRE_LEADIN, LEADIN, RUNNING, STARTING);
 	signal state: t_state;
 begin

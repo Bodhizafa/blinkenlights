@@ -41,13 +41,11 @@
     <file xil_pn:fileType="FILE_FITTER_REPORT" xil_pn:name="Wimbledon.rpt"/>
     <file xil_pn:branch="Implementation" xil_pn:fileType="FILE_XST_STX" xil_pn:name="Wimbledon.stx"/>
     <file xil_pn:branch="Implementation" xil_pn:fileType="FILE_XST_REPORT" xil_pn:name="Wimbledon.syr"/>
-    <file xil_pn:fileType="FILE_FITTER_REPORT" xil_pn:name="Wimbledon.tim"/>
     <file xil_pn:fileType="FILE_FITTER_REPORT" xil_pn:name="Wimbledon.tspec"/>
     <file xil_pn:branch="Implementation" xil_pn:fileType="FILE_VM6" xil_pn:name="Wimbledon.vm6"/>
     <file xil_pn:fileType="FILE_FITTER_REPORT" xil_pn:name="Wimbledon.xml"/>
     <file xil_pn:branch="Implementation" xil_pn:fileType="FILE_XST" xil_pn:name="Wimbledon.xst"/>
     <file xil_pn:fileType="FILE_FITTER_REPORT" xil_pn:name="Wimbledon_build.xml"/>
-    <file xil_pn:fileType="FILE_HTML" xil_pn:name="Wimbledon_envsettings.html"/>
     <file xil_pn:fileType="FILE_DIRECTORY" xil_pn:name="Wimbledon_html"/>
     <file xil_pn:fileType="FILE_XRPT" xil_pn:name="Wimbledon_ngdbuild.xrpt"/>
     <file xil_pn:fileType="FILE_PAD_EXCEL_REPORT" xil_pn:name="Wimbledon_pad.csv"/>
@@ -60,9 +58,8 @@
     <file xil_pn:fileType="FILE_LOG" xil_pn:name="fuse.log"/>
     <file xil_pn:fileType="FILE_DIRECTORY" xil_pn:name="isim"/>
     <file xil_pn:branch="BehavioralSim" xil_pn:fileType="FILE_CMD" xil_pn:name="isim.cmd"/>
-    <file xil_pn:branch="BehavioralSim" xil_pn:fileType="FILE_LOG" xil_pn:name="isim.log"/>
     <file xil_pn:fileType="FILE_FITTER_REPORT" xil_pn:name="webtalk_pn.xml"/>
-    <file xil_pn:branch="Implementation" xil_pn:fileType="FILE_XST_PROJECT" xil_pn:name="wimbledon_tb_beh.prj"/>
+    <file xil_pn:fileType="FILE_XST_PROJECT" xil_pn:name="wimbledon_tb_beh.prj"/>
     <file xil_pn:branch="BehavioralSim" xil_pn:fileType="FILE_ISIM_EXE" xil_pn:name="wimbledon_tb_isim_beh.exe"/>
     <file xil_pn:fileType="FILE_ISIM_MISC" xil_pn:name="wimbledon_tb_isim_beh.wdb"/>
     <file xil_pn:branch="BehavioralSim" xil_pn:fileType="FILE_INI" xil_pn:name="xilinxsim.ini"/>
@@ -71,65 +68,40 @@
   </files>
 
   <transforms xmlns="http://www.xilinx.com/XMLSchema">
-    <transform xil_pn:end_ts="1655437615" xil_pn:name="TRAN_copyInitialToAbstractSimulation" xil_pn:start_ts="1655437615">
+    <transform xil_pn:end_ts="1657436469" xil_pn:in_ck="3389282195431157994" xil_pn:name="TRAN_copyAbstractToPostAbstractSimulation" xil_pn:start_ts="1657436469">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
-    </transform>
-    <transform xil_pn:end_ts="1655437615" xil_pn:in_ck="3389282195431157994" xil_pn:name="TRAN_copyAbstractToPostAbstractSimulation" xil_pn:start_ts="1655437615">
-      <status xil_pn:value="SuccessfullyRun"/>
-      <status xil_pn:value="ReadyToRun"/>
-      <status xil_pn:value="OutOfDateForInputs"/>
-      <status xil_pn:value="OutOfDateForOutputs"/>
-      <status xil_pn:value="InputChanged"/>
-      <status xil_pn:value="OutputChanged"/>
       <outfile xil_pn:name="Wimbledon.vhd"/>
       <outfile xil_pn:name="bus_demuxer.vhd"/>
       <outfile xil_pn:name="wimbledon_tb.vhd"/>
     </transform>
-    <transform xil_pn:end_ts="1655437615" xil_pn:name="TRAN_schematicsToHdlSim" xil_pn:prop_ck="6528062123266938503" xil_pn:start_ts="1655437615">
+    <transform xil_pn:end_ts="1657436469" xil_pn:name="TRAN_schematicsToHdlSim" xil_pn:prop_ck="6528062123266938503" xil_pn:start_ts="1657436469">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
     </transform>
-    <transform xil_pn:end_ts="1655437615" xil_pn:in_ck="3389282195431157994" xil_pn:name="TRAN_copyPostAbstractToPreSimulation" xil_pn:start_ts="1655437615">
+    <transform xil_pn:end_ts="1657436469" xil_pn:in_ck="3389282195431157994" xil_pn:name="TRAN_copyPostAbstractToPreSimulation" xil_pn:start_ts="1657436469">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
-      <status xil_pn:value="OutOfDateForInputs"/>
-      <status xil_pn:value="OutOfDateForPredecessor"/>
-      <status xil_pn:value="OutOfDateForOutputs"/>
-      <status xil_pn:value="InputChanged"/>
-      <status xil_pn:value="OutputChanged"/>
       <outfile xil_pn:name="Wimbledon.vhd"/>
       <outfile xil_pn:name="bus_demuxer.vhd"/>
       <outfile xil_pn:name="wimbledon_tb.vhd"/>
     </transform>
-    <transform xil_pn:end_ts="1655437621" xil_pn:in_ck="3389282195431157994" xil_pn:name="TRAN_ISimulateBehavioralModelRunFuse" xil_pn:prop_ck="6279477271100918005" xil_pn:start_ts="1655437615">
+    <transform xil_pn:end_ts="1657436476" xil_pn:in_ck="3389282195431157994" xil_pn:name="TRAN_ISimulateBehavioralModelRunFuse" xil_pn:prop_ck="6279477271100918005" xil_pn:start_ts="1657436469">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
-      <status xil_pn:value="OutOfDateForInputs"/>
-      <status xil_pn:value="OutOfDateForProperties"/>
-      <status xil_pn:value="OutOfDateForPredecessor"/>
-      <status xil_pn:value="OutOfDateForOutputs"/>
-      <status xil_pn:value="InputChanged"/>
-      <status xil_pn:value="OutputChanged"/>
       <outfile xil_pn:name="fuse.log"/>
       <outfile xil_pn:name="isim"/>
-      <outfile xil_pn:name="isim.log"/>
       <outfile xil_pn:name="wimbledon_tb_beh.prj"/>
       <outfile xil_pn:name="wimbledon_tb_isim_beh.exe"/>
       <outfile xil_pn:name="xilinxsim.ini"/>
     </transform>
-    <transform xil_pn:end_ts="1655437623" xil_pn:in_ck="2405665613236226053" xil_pn:name="TRAN_ISimulateBehavioralModel" xil_pn:prop_ck="251729469047258638" xil_pn:start_ts="1655437621">
+    <transform xil_pn:end_ts="1657436477" xil_pn:in_ck="2405665613236226053" xil_pn:name="TRAN_ISimulateBehavioralModel" xil_pn:prop_ck="251729469047258638" xil_pn:start_ts="1657436476">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
-      <status xil_pn:value="OutOfDateForProperties"/>
-      <status xil_pn:value="OutOfDateForPredecessor"/>
-      <status xil_pn:value="OutOfDateForOutputs"/>
-      <status xil_pn:value="OutputChanged"/>
       <outfile xil_pn:name="isim.cmd"/>
-      <outfile xil_pn:name="isim.log"/>
       <outfile xil_pn:name="wimbledon_tb_isim_beh.wdb"/>
     </transform>
-    <transform xil_pn:end_ts="1655442143" xil_pn:in_ck="7036476153671841924" xil_pn:name="TRANEXT_xstsynthesize_xbr" xil_pn:prop_ck="4639879674432675233" xil_pn:start_ts="1655442130">
+    <transform xil_pn:end_ts="1657416696" xil_pn:in_ck="7036476153671841924" xil_pn:name="TRANEXT_xstsynthesize_xbr" xil_pn:prop_ck="4639879674432675233" xil_pn:start_ts="1657416683">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
       <outfile xil_pn:name="Wimbledon.lso"/>
@@ -143,14 +115,13 @@
       <outfile xil_pn:name="Wimbledon_xst.xrpt"/>
       <outfile xil_pn:name="_xmsgs/xst.xmsgs"/>
       <outfile xil_pn:name="webtalk_pn.xml"/>
-      <outfile xil_pn:name="wimbledon_tb_beh.prj"/>
       <outfile xil_pn:name="xst"/>
     </transform>
-    <transform xil_pn:end_ts="1655441870" xil_pn:in_ck="3011003160256382221" xil_pn:name="TRAN_compileBCD2" xil_pn:prop_ck="-475131836308180583" xil_pn:start_ts="1655441870">
+    <transform xil_pn:end_ts="1657416697" xil_pn:in_ck="3011003160256382221" xil_pn:name="TRAN_compileBCD2" xil_pn:prop_ck="-475131836308180583" xil_pn:start_ts="1657416696">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
     </transform>
-    <transform xil_pn:end_ts="1655442152" xil_pn:in_ck="-5528929668696238028" xil_pn:name="TRAN_ngdbuild" xil_pn:prop_ck="2260988109850707743" xil_pn:start_ts="1655442143">
+    <transform xil_pn:end_ts="1657416704" xil_pn:in_ck="-5528929668696238028" xil_pn:name="TRAN_ngdbuild" xil_pn:prop_ck="2260988109850707743" xil_pn:start_ts="1657416697">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
       <outfile xil_pn:name="Wimbledon.bld"/>
@@ -159,10 +130,11 @@
       <outfile xil_pn:name="_ngo"/>
       <outfile xil_pn:name="_xmsgs/ngdbuild.xmsgs"/>
     </transform>
-    <transform xil_pn:end_ts="1655442173" xil_pn:in_ck="3011003160256374728" xil_pn:name="TRANEXT_vm6File_xbr" xil_pn:prop_ck="-7210002029295519281" xil_pn:start_ts="1655442152">
+    <transform xil_pn:end_ts="1657416731" xil_pn:in_ck="3011003160256374728" xil_pn:name="TRANEXT_vm6File_xbr" xil_pn:prop_ck="-7210002029295519281" xil_pn:start_ts="1657416704">
       <status xil_pn:value="SuccessfullyRun"/>
-      <status xil_pn:value="WarningsGenerated"/>
       <status xil_pn:value="ReadyToRun"/>
+      <status xil_pn:value="OutOfDateForOutputs"/>
+      <status xil_pn:value="OutputChanged"/>
       <outfile xil_pn:name="Wimbledon.chk"/>
       <outfile xil_pn:name="Wimbledon.cxt"/>
       <outfile xil_pn:name="Wimbledon.gyd"/>
@@ -172,7 +144,6 @@
       <outfile xil_pn:name="Wimbledon.pad"/>
       <outfile xil_pn:name="Wimbledon.pnx"/>
       <outfile xil_pn:name="Wimbledon.rpt"/>
-      <outfile xil_pn:name="Wimbledon.tim"/>
       <outfile xil_pn:name="Wimbledon.tspec"/>
       <outfile xil_pn:name="Wimbledon.vm6"/>
       <outfile xil_pn:name="Wimbledon.xml"/>
@@ -180,21 +151,19 @@
       <outfile xil_pn:name="Wimbledon_html"/>
       <outfile xil_pn:name="Wimbledon_pad.csv"/>
     </transform>
-    <transform xil_pn:end_ts="1655442176" xil_pn:in_ck="3011003160256383592" xil_pn:name="TRANEXT_crtProg_xbr" xil_pn:prop_ck="5245363024343" xil_pn:start_ts="1655442173">
+    <transform xil_pn:end_ts="1657416733" xil_pn:in_ck="3011003160256383592" xil_pn:name="TRANEXT_crtProg_xbr" xil_pn:prop_ck="5245363024343" xil_pn:start_ts="1657416731">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
       <outfile xil_pn:name="Wimbledon.jed"/>
     </transform>
-    <transform xil_pn:end_ts="1655442222" xil_pn:in_ck="3011003160256370306" xil_pn:name="TRAN_configureTargetDevice_CPLD" xil_pn:prop_ck="-3223234765801749484" xil_pn:start_ts="1655442219">
+    <transform xil_pn:end_ts="1657416815" xil_pn:in_ck="3011003160256370306" xil_pn:name="TRAN_configureTargetDevice_CPLD" xil_pn:prop_ck="-3223234765801749484" xil_pn:start_ts="1657416813">
       <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="ReadyToRun"/>
     </transform>
-    <transform xil_pn:end_ts="1655437429" xil_pn:in_ck="3011003160256383592" xil_pn:name="TRAN_timRpt" xil_pn:prop_ck="111903974446" xil_pn:start_ts="1655437427">
-      <status xil_pn:value="AbortedRun"/>
+    <transform xil_pn:end_ts="1657416731" xil_pn:in_ck="3011003160256383592" xil_pn:name="TRAN_timRpt" xil_pn:prop_ck="111903974446" xil_pn:start_ts="1657416728">
+      <status xil_pn:value="SuccessfullyRun"/>
       <status xil_pn:value="WarningsGenerated"/>
       <status xil_pn:value="ReadyToRun"/>
-      <status xil_pn:value="OutOfDateForInputs"/>
-      <status xil_pn:value="InputChanged"/>
     </transform>
   </transforms>
 

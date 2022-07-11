@@ -37,12 +37,14 @@ pub const PixelBuffers = struct {
         }
         self.lock.lock();
         defer self.lock.unlock();
-        std.debug.print("\nAdding {d} pixels to channel {d}, offset {d}", .{new_data.len, channel, offset});
+        //std.debug.print("Adding {d} colors to channel {d}, offset {d}\n", .{new_data.len, channel, offset});
+        //std.debug.print("Adding {any}\n", .{new_data});
         var channel_buf = &self.channel_bufs[channel-1];
-        if (offset + new_data.len > self.channel_bufs[channel].items.len) {
+        if (offset + new_data.len > channel_buf.items.len) {
             try channel_buf.resize(offset + new_data.len);
         }
         try channel_buf.replaceRange(offset, new_data.len, new_data);
+        //std.debug.print("Buffers now: {any}\n", .{self.channel_bufs[channel-1]});
     }
 
     pub fn output(self: *PixelBuffers, allocator: std.mem.Allocator) !ArrayList(u8) {
@@ -52,7 +54,7 @@ pub const PixelBuffers = struct {
         for (self.channel_bufs) |channel_buf| {
             max_length = std.math.max(max_length, channel_buf.items.len);
         }
-        std.debug.print("\nMax Length: {d}", .{max_length});
+        //std.debug.print("Max Length: {d}\n", .{max_length});
         var out =  try ArrayList(u8).initCapacity(allocator, max_length * 8 * 3 + 2);
         try out.append(0x00);  // Lead-in. I saw a first clock get dropped once, maybe
         try out.append(0xFF);  // Begin
@@ -64,7 +66,7 @@ pub const PixelBuffers = struct {
             } ** 8;
             var j: u4 = 0;
             while (j < 8) : (j += 1) {
-                if (self.channel_bufs[j].items.len >= max_length) {
+                if (i < self.channel_bufs[j].items.len) {
                     pixels[j] = self.channel_bufs[j].items[i];
                 }
             }

@@ -18,6 +18,7 @@ import time
 import jps
 from collections import namedtuple
 from Neuron import Model2, Neuron, Synapse
+import math
 TAU = math.pi * 2
 
 
@@ -260,7 +261,7 @@ if __name__ == "__main__":
                 opcc.send_leds(0, itertools.islice(itertools.repeat((0xA5, 0xA5, 0xA5)), nlights),
                                fenceposts=fenceposts)
             elif raw == "C":
-                with cbreak_termina():
+                with cbreak_terminal():
                     print("[j][k] select segment")
                     segs = list(model.generate_segs())
                     i = 0
@@ -272,6 +273,7 @@ if __name__ == "__main__":
                         seg = segs[i]
                         opcc.highlight(seg['strand'], seg['start'], model.find(seg['key']).nlights, (0, 0, 0.5))
                         c = sys.stdin.read(1)
+                        print("Not Implemented")
                 
             elif raw == "c":
                 opcc.clear()

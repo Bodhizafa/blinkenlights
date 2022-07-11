@@ -14,22 +14,26 @@ pub fn main() !void {
     // 2908 is the max for 1 xfer on raspi
     // 4096 on jetson
     const tx_len = 4096;
-    const tx = try allocator.alloc(u8, tx_len);
-    var i: u32 = 0;
+    var txal = try std.ArrayList(u8).initCapacity(allocator, 4098);
+    var tx = std.mem.zeroes([4096]u8);
+    try txal.append(0xFF);
+    tx[0] = 0xFF;
+    var i: u32 = 1;
     while (i < tx_len): (i += 1) {
         tx[i] = 0xA5;
+        try txal.append(0xA5);
     }
+    std.debug.print("TXAL: {any}", .{txal.items});
     const transfer = [1]c.spi_ioc_transfer{.{
-        .tx_buf = @ptrToInt(&tx),
+        .tx_buf = @ptrToInt(txal.items.ptr),
         .rx_buf = 0,
         .len = tx_len,
         .delay_usecs = 0,
         .speed_hz = 6666666,
         .bits_per_word = 8,
-        .cs_change = 0,
+        .cs_change = 1,
         .tx_nbits = 0,
         .rx_nbits = 0,
-        .word_delay_usecs = 0,
         .pad = 0,
     }};
     const ret = c.ioctl(f.handle, @bitCast(c_int, ioctl_no), &transfer);

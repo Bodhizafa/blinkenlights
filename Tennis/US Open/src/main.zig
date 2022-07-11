@@ -53,17 +53,26 @@ pub const Server = struct {
                     std.log.info("Client Lost: {any}\n", .{err});
                     break;
                 };
-                try self.pixel_buffers.update(message.channel, 0, @ptrCast([]swizzler.Color, message.data));
-                try self.output();
+                try self.pixel_buffers.update(message.channel, 0, std.mem.bytesAsSlice(swizzler.Color, message.data));
+                //try self.output();
             }
+        }
+    }
+    pub fn run_output(self: *Server, frame_time_usec: u32) !void {
+        std.log.info("Output loop started",.{});
+        while (true) {
+            std.os.nanosleep(frame_time_usec / 1_000_000,
+                (frame_time_usec % 1_000_000) * 1_000);
+            try self.output();
         }
     }
     pub fn output(self: *Server) !void {
         const tx = try self.pixel_buffers.output(self.allocator);
         defer tx.deinit();
         const ioctl_no = @intCast(u32, c._IOW(c.SPI_IOC_MAGIC, 0, [c.SPI_MSGSIZE(1)]u8));
+        //std.debug.print("SPI Data: {any}", .{tx.items});
         const transfer = [1]c.spi_ioc_transfer{.{
-            .tx_buf = @ptrToInt(&tx.items),
+            .tx_buf = @ptrToInt(tx.items.ptr),
             .rx_buf = 0,
             .len = @intCast(u32, @minimum(tx.items.len, 4096)),
             .delay_usecs = 0,
@@ -110,8 +119,8 @@ pub const Client = struct {
         const command = header_buf[1];
         cur_idx = 0;
         const data_len: usize = std.mem.readIntBig(u16, header_buf[2..4]);
-        std.debug.print("Channel: {d}. Command: {d}. Data len: {d}. Alloc: {any}\n",
-            .{channel, command, data_len, self.allocator});
+        //std.debug.print("Channel: {d}. Command: {d}. Data len: {d}. Alloc: {any}\n",
+            //.{channel, command, data_len, self.allocator});
         const data_buf = try self.allocator.alloc(u8, data_len);
         while (cur_idx < data_len) {
             const new_read_len = try self.stream.read(data_buf[cur_idx..data_len]);
@@ -120,7 +129,7 @@ pub const Client = struct {
             }
             cur_idx += new_read_len;
         }
-        std.debug.print("Data: {any}\n", .{data_buf});
+        //std.debug.print("Message Data: {any}\n", .{data_buf});
         return Message{
             .channel = channel,
             .command = try std.meta.intToEnum(Command, command),
@@ -139,5 +148,9 @@ pub fn main() anyerror!void {
     const addr: std.net.Address = std.net.Address.parseIp("0.0.0.0", 7890) catch unreachable;
     std.log.info("Attempting to bind {any}", .{addr});
     var server = try Server.init("/dev/spidev0.0", addr, allocator);
-    try server.run_net();
+    const net_thread = try std.Thread.spawn(.{}, Server.run_net, .{&server});
+    const output_thread = try std.Thread.spawn(.{}, Server.run_output, .{&server, 1_000_0});
+    net_thread.join(); // never happens
+    output_thread.join(); // never happens
+    unreachable;
 }

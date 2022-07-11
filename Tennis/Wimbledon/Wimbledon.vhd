@@ -21,12 +21,16 @@ architecture Behavioral of Wimbledon is
 			mux_debug_out: OUT STD_LOGIC
 		);
 		END COMPONENT;
-
+		signal clkn:STD_LOGIC;
+		signal datan: STD_LOGIC;
 begin
+	clkn <= not clk_in;
+	datan <= not data_in;
+	
 	inst_bus_demuxer: bus_demuxer PORT MAP(
 		mux_rst_in => rst_in,
-		mux_clk_in => clk_in,
-		mux_data_in => data_in,
+		mux_clk_in => clkn,
+		mux_data_in => datan,
 		mux_data_out => data_out,
 		mux_debug_out => debug_out
 		);
